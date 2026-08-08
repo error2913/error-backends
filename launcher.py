@@ -4,7 +4,8 @@
 错误后端（error-backends）管理入口（仅依赖 Python 标准库）。
 
 直接运行本脚本：自动检查/安装 WebUI 自身依赖，然后启动 Web 管理界面
-（默认 http://127.0.0.1:8911），后端安装、启停、端口管理都在页面里完成。
+（默认监听 0.0.0.0:8911，首次运行自动生成访问 token），后端安装、启停、
+端口管理都在页面里完成。运行本脚本启动后台 WebUI 后即退出，不占用终端。
 """
 
 import argparse
@@ -12,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -149,6 +151,86 @@ def configure_webui_port(value=None) -> int:
         print("[launcher] 旧 WebUI 已停止，正在用新端口重启...")
         start_webui_background(port=port, open_browser=False)
     return port
+
+
+def effective_webui_host(default: str = "0.0.0.0") -> str:
+    """WebUI 监听地址：优先 .runtime.json 中的覆盖值，否则默认 0.0.0.0（全部网卡）"""
+    return str(load_runtime().get("webui", {}).get("host") or default)
+
+
+def save_webui_host(host: str) -> None:
+    rt = load_runtime()
+    rt.setdefault("webui", {})["host"] = str(host)
+    save_runtime(rt)
+
+
+def reset_webui_host() -> None:
+    rt = load_runtime()
+    rt.get("webui", {}).pop("host", None)
+    if not rt.get("webui"):
+        rt.pop("webui", None)
+    save_runtime(rt)
+
+
+def configure_webui_host(value=None) -> str:
+    """查看/修改 WebUI 监听地址；修改后若后台 WebUI 在运行则自动重启，返回有效地址"""
+    if value is None:
+        return effective_webui_host()
+    if value == "reset":
+        reset_webui_host()
+        host = "0.0.0.0"
+    else:
+        host = str(value).strip()
+        if not host:
+            raise ValueError("监听地址不能为空")
+        save_webui_host(host)
+    if stop_webui():
+        print("[launcher] 旧 WebUI 已停止，正在用新地址重启...")
+        start_webui_background(host=host, open_browser=False)
+    return host
+
+
+def effective_webui_token() -> str:
+    """WebUI 访问 token：首次运行自动生成并保存；webui-token 命令可查看/修改"""
+    rt = load_runtime()
+    token = rt.get("webui", {}).get("token")
+    if not token:
+        token = secrets.token_urlsafe(24)
+        rt.setdefault("webui", {})["token"] = token
+        save_runtime(rt)
+    return str(token)
+
+
+def save_webui_token(token: str) -> None:
+    rt = load_runtime()
+    rt.setdefault("webui", {})["token"] = str(token)
+    save_runtime(rt)
+
+
+def reset_webui_token() -> None:
+    rt = load_runtime()
+    rt.get("webui", {}).pop("token", None)
+    if not rt.get("webui"):
+        rt.pop("webui", None)
+    save_runtime(rt)
+
+
+def configure_webui_token(value=None) -> str:
+    """查看/修改 WebUI 访问 token；修改后若后台 WebUI 在运行则自动重启，返回有效 token"""
+    if value is None:
+        return effective_webui_token()
+    if value == "reset":
+        reset_webui_token()
+        token = effective_webui_token()  # 重新生成
+    else:
+        token = str(value).strip()
+        if not token:
+            raise ValueError("token 不能为空")
+        save_webui_token(token)
+    if stop_webui():
+        print("[launcher] 旧 WebUI 已停止，正在用新 token 重启...")
+        start_webui_background(open_browser=False)
+    return token
 
 
 def discover_backends() -> list:
@@ -672,16 +754,19 @@ def ensure_webui_deps() -> None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req])
 
 
-def launch_webui(backends, config, supervisor, host: str = "127.0.0.1", port: int = None, open_browser: bool = True) -> None:
+def launch_webui(backends, config, supervisor, host: str = None, port: int = None, open_browser: bool = True) -> None:
     """安装 WebUI 依赖并启动管理界面（阻塞，Ctrl+C 退出）"""
     ensure_webui_deps()
+    host = host or effective_webui_host()
     port = int(port) if port else effective_webui_port()
+    token = effective_webui_token()
     try:
         from webui import run_webui
     except ImportError:
         print("[launcher] webui 模块缺失（webui.py）")
         sys.exit(1)
     print(f"[launcher] 启动后端管理界面: http://{host}:{port}")
+    print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
     run_webui(backends, config, supervisor, host=host, port=port, open_browser=open_browser)
 
 
@@ -692,9 +777,11 @@ def _can_open_browser() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def start_webui_background(host: str = "127.0.0.1", port: int = None, open_browser: bool = True) -> int:
+def start_webui_background(host: str = None, port: int = None, open_browser: bool = True) -> int:
     """后台启动 WebUI（不占用终端、无控制台窗口），返回 pid；已在运行则返回现有 pid"""
+    host = host or effective_webui_host()
     port = int(port) if port else effective_webui_port()
+    token = effective_webui_token()
     log_dir = os.path.join(ROOT_DIR, "logs")
     os.makedirs(log_dir, exist_ok=True)
     if os.path.exists(WEBUI_PID_FILE):
@@ -702,8 +789,9 @@ def start_webui_background(host: str = "127.0.0.1", port: int = None, open_brows
             with open(WEBUI_PID_FILE, encoding="utf-8") as f:
                 old_pid = int(f.read().strip() or 0)
             if old_pid and Supervisor._pid_alive(old_pid):
-                url = f"http://{host}:{port}"
+                url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
                 print(f"[launcher] WebUI 已在后台运行 (pid={old_pid})，无需重复启动: {url}")
+                print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
                 if open_browser and _can_open_browser():
                     webbrowser.open(url)
                 return old_pid
@@ -736,9 +824,11 @@ def start_webui_background(host: str = "127.0.0.1", port: int = None, open_brows
     )
     with open(WEBUI_PID_FILE, "w", encoding="utf-8") as f:
         f.write(str(proc.pid))
-    print(f"[launcher] WebUI 已在后台启动: http://{host}:{port} (pid={proc.pid}, 日志=logs/webui.log)")
+    url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
+    print(f"[launcher] WebUI 已在后台启动: {url} (pid={proc.pid}, 日志=logs/webui.log)")
+    print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
     if open_browser and _can_open_browser():
-        threading.Timer(0.5, lambda: webbrowser.open(f"http://{host}:{port}")).start()
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     return proc.pid
 
 
@@ -1023,12 +1113,16 @@ def main() -> None:
     sub.add_parser("status", help="查看运行状态")
     sub.add_parser("package", help="打包 backends/ 为 zip")
     webui_p = sub.add_parser("webui", help="启动 Web 管理界面")
-    webui_p.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1，仅本机）")
+    webui_p.add_argument("--host", default=None, help="监听地址（默认取 webui-host 配置，未配置为 0.0.0.0）")
     webui_p.add_argument("--port", type=int, default=None, help="监听端口（默认取 webui-port 配置，未配置为 8911）")
     webui_p.add_argument("--no-browser", action="store_true", help="启动后不自动打开浏览器")
     sub.add_parser("webui-stop", help="停止后台 WebUI")
     webui_port_p = sub.add_parser("webui-port", help="查看/修改 WebUI 端口（修改后自动重启 WebUI）")
     webui_port_p.add_argument("value", nargs="?", help="新端口 1-65535，或 reset 恢复默认 8911")
+    webui_host_p = sub.add_parser("webui-host", help="查看/修改 WebUI 监听地址（修改后自动重启 WebUI）")
+    webui_host_p.add_argument("value", nargs="?", help="监听地址(如 0.0.0.0 / 127.0.0.1)，或 reset 恢复默认 0.0.0.0")
+    webui_token_p = sub.add_parser("webui-token", help="查看/修改 WebUI 访问 token（修改后自动重启 WebUI）")
+    webui_token_p.add_argument("value", nargs="?", help="新 token，或 reset 重新生成")
     sub.add_parser("service-install", help="[Linux] 注册 systemd 服务：开机自启 + 自动拉起 WebUI")
     sub.add_parser("service-uninstall", help="[Linux] 移除 systemd 服务")
     args = parser.parse_args()
@@ -1104,6 +1198,34 @@ def main() -> None:
             print(f"[launcher] WebUI 端口已恢复默认 8911")
         else:
             print(f"[launcher] WebUI 端口已设为 {port}")
+        return
+
+    if args.command == "webui-host":
+        try:
+            host = configure_webui_host(args.value)
+        except ValueError as e:
+            print(f"[launcher] {e}")
+            sys.exit(1)
+        if args.value is None:
+            print(f"[launcher] WebUI 监听地址: {host}（默认 0.0.0.0，保存在 .runtime.json）")
+        elif args.value == "reset":
+            print("[launcher] WebUI 监听地址已恢复默认 0.0.0.0")
+        else:
+            print(f"[launcher] WebUI 监听地址已设为 {host}")
+        return
+
+    if args.command == "webui-token":
+        try:
+            token = configure_webui_token(args.value)
+        except ValueError as e:
+            print(f"[launcher] {e}")
+            sys.exit(1)
+        if args.value is None:
+            print(f"[launcher] WebUI token: {token}（保存在 .runtime.json）")
+        elif args.value == "reset":
+            print(f"[launcher] WebUI token 已重新生成: {token}")
+        else:
+            print("[launcher] WebUI token 已更新")
         return
 
     if args.command == "start":

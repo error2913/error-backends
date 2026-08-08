@@ -6,9 +6,10 @@
 由 launcher.py 直接启动：
   python launcher.py
 
-（也可用 python launcher.py webui [--host 127.0.0.1] [--port 8911] [--no-browser] 调整参数）
+（也可用 python launcher.py webui [--host 0.0.0.0] [--port 8911] [--no-browser] 调整参数）
 
-默认只监听 127.0.0.1（本机），无鉴权，请勿暴露到公网。
+默认监听 0.0.0.0（全部网卡），访问 token 首次运行自动生成（launcher webui-token 可改），
+API 请求需带 Authorization: Bearer <token> 或 X-Token: <token>。
 """
 
 import json
@@ -26,6 +27,8 @@ from launcher import (
     Supervisor,
     backend_config,
     deps_ready,
+    effective_webui_host,
+    effective_webui_token,
     load_runtime,
     process_memory,
     remove_backend_deps,
@@ -184,6 +187,7 @@ PAGE = """<!DOCTYPE html>
     </div>
     <div class="header-right">
       <button id="themeBtn" onclick="cycleTheme()">主题</button>
+      <button onclick="setToken()">🔑 Token</button>
       <button onclick="updateNow()">⬆ 更新</button>
       <button onclick="refresh()">⟳ 刷新</button>
     </div>
@@ -275,12 +279,29 @@ function fmtUptime(s){
 }
 function toast(msg, ms){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', ms || 3000); }
 async function api(path, method, body){
-  try {
-    const r = await fetch(path, {method: method||'GET', body: body || undefined});
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.message || ('HTTP ' + r.status));
-    return j;
-  } catch(e){ toast('请求失败: ' + e.message); throw e; }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = {};
+    const t = localStorage.getItem('webui_token');
+    if (t) headers['X-Token'] = t;
+    try {
+      const r = await fetch(path, {method: method||'GET', headers: headers, body: body || undefined});
+      if (r.status === 401 && attempt === 0) {
+        const tk = prompt('请输入 WebUI token：');
+        if (tk && tk.trim()) { localStorage.setItem('webui_token', tk.trim()); continue; }
+      }
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.message || ('HTTP ' + r.status));
+      return j;
+    } catch(e){ toast('请求失败: ' + e.message); throw e; }
+  }
+}
+function setToken(){
+  const cur = localStorage.getItem('webui_token') || '';
+  const v = prompt('设置 WebUI token（留空清除，token 在服务器上用 errorbackend webui-token 查看）：', cur);
+  if (v === null) return;
+  if (v.trim()) localStorage.setItem('webui_token', v.trim());
+  else localStorage.removeItem('webui_token');
+  refresh();
 }
 function applyTheme(){
   const t = localStorage.getItem('theme') || 'auto';
@@ -484,8 +505,10 @@ setInterval(refresh, 1000);
 </html>"""
 
 
-def run_webui(backends, config, supervisor: Supervisor, host: str = "127.0.0.1", port: int = 8911, open_browser: bool = True) -> None:
+def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: int = 8911, open_browser: bool = True) -> None:
     """启动 Web 管理界面（阻塞，Ctrl+C 退出）"""
+    host = host or effective_webui_host()
+    token = effective_webui_token()
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), config.get("log_dir", DEFAULT_LOG_DIR))
     by_name = {b.name: b for b in backends}
     setup_state = {}  # name -> {"lines": [...], "running": bool, "failed": bool}
@@ -547,6 +570,13 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = "127.0.0.1",
         def log_message(self, fmt, *args):  # 关闭默认访问日志刷屏
             pass
 
+        def _authorized(self) -> bool:
+            tok = getattr(self, "webui_token", "")
+            if not tok:
+                return True
+            auth = self.headers.get("Authorization") or ""
+            return auth == f"Bearer {tok}" or (self.headers.get("X-Token") or "") == tok
+
         def _json(self, obj, status=200):
             body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
@@ -567,6 +597,9 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = "127.0.0.1",
                 return {}
 
         def do_GET(self):
+            if self.path not in ("/", "/icon.png", "/icon-256.png") and not self._authorized():
+                self._err("unauthorized", 401)
+                return
             if self.path == "/":
                 body = PAGE.encode("utf-8")
                 self.send_response(200)
@@ -660,6 +693,9 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = "127.0.0.1",
             self._err("not found", 404)
 
         def do_POST(self):
+            if not self._authorized():
+                self._err("unauthorized", 401)
+                return
             path = self.path
             try:
                 if path == "/api/start-all":
@@ -791,10 +827,13 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = "127.0.0.1",
             except Exception as e:  # noqa: BLE001
                 self._err(str(e))
 
+    Handler.webui_token = token
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"[launcher] WebUI 已启动: http://{host}:{port}（Ctrl+C 退出）")
+    url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
+    print(f"[launcher] WebUI 已启动: {url}（Ctrl+C 退出）")
+    print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
     if open_browser:
-        threading.Timer(0.5, lambda: webbrowser.open(f"http://{host}:{port}")).start()
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

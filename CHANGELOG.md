@@ -9,6 +9,8 @@
 - 默认 WebUI 端口改为 8911，避开其他后端生态常用端口（README「端口约定」）
 - 收录首个后端 `ocr`（OCR 图片文字识别，Node + tesseract.js，默认端口 18699，与海豹插件默认配置一致），接入 token 鉴权与 `ERROR_BACKEND_*` 环境变量
 - 无图形环境的 Linux 服务器启动 WebUI 时不再尝试打开浏览器（避免 xdg-open 报错），仅打印访问地址
+- WebUI 默认监听 0.0.0.0，首次运行自动生成访问 token（`webui-token` 查看/修改、`webui-host` 改监听地址，改后自动重启）
+- 新增 `errorbackend webui-host` / `webui-token` 命令；launcher 启动后台 WebUI 后即退出，不占用终端
 
 ## 0.1.0 - 2026-08-08
 

@@ -36,7 +36,7 @@ errorbackend help                      # 查看所有命令
 
 ## 数据与状态文件（logs/ 与根目录，均 gitignore）
 
-- `.runtime.json`：每后端运行时配置 `config/<name> = {port, token, host}`；`ports` 为旧版字段（读兼容、写同步）；`webui.port` 为 WebUI 管理界面端口（命令行 `launcher.py webui-port <端口|reset>` / `errorbackend webui-port` 读写，修改后自动重启 WebUI）。读写统一走 `launcher.backend_config()` / `save_backend_config()` / `configure_webui_port()`。
+- `.runtime.json`：每后端运行时配置 `config/<name> = {port, token, host}`；`ports` 为旧版字段（读兼容、写同步）；`webui` 为 WebUI 管理界面配置：`port`（默认 8911）、`host`（默认 0.0.0.0）、`token`（首次运行自动生成），命令行 `webui-port` / `webui-host` / `webui-token` 读写，修改后自动重启 WebUI。读写统一走 `launcher.backend_config()` / `save_backend_config()` / `configure_webui_port()` / `configure_webui_host()` / `configure_webui_token()`。
 - `logs/state.json`：Supervisor 进程状态（`pid`、`started_at`、`restarts`、`stopped` 标记）。
 - `logs/webui.pid`：后台 WebUI 进程号。
 - `logs/<backend>.log`：各后端日志；`logs/webui.log`：WebUI 日志。
@@ -44,7 +44,7 @@ errorbackend help                      # 查看所有命令
 ## 关键流程
 
 ### 一键启动（`python launcher.py`）
-`ensure_webui_deps()`（无 webui-requirements.txt 时为空操作）→ `start_webui_background()`：检测 pid 文件避免重复启动；detach 子进程（Windows `DETACHED_PROCESS | CREATE_NO_WINDOW`，Linux `start_new_session`）；打印访问链接，仅在有图形环境时（Windows / Linux 的 DISPLAY、WAYLAND_DISPLAY）自动开浏览器，无头 Linux 服务器不调用 webbrowser.open。
+`ensure_webui_deps()`（无 webui-requirements.txt 时为空操作）→ `start_webui_background()`：检测 pid 文件避免重复启动；首次运行自动生成访问 token（`effective_webui_token()`，secret 保存于 `.runtime.json` 的 `webui.token`）；detach 子进程（Windows `DETACHED_PROCESS | CREATE_NO_WINDOW`，Linux `start_new_session`）；打印访问地址与 token，仅在有图形环境时（Windows / Linux 的 DISPLAY、WAYLAND_DISPLAY）自动开浏览器，无头 Linux 服务器不调用 webbrowser.open；命令执行完即退出，WebUI 留在后台。
 
 ### 后端启动（`Supervisor.spawn`）
 按需安装依赖（首次）→ Linux 下 node 后端自动检测/补齐 Puppeteer Chromium 系统库（`ldd` 找 missing，Debian/Ubuntu 用 `apt-get` 自动装，映射见 `_PUPPETEER_LIB_PACKAGES`）→ 注入环境变量 `ERROR_BACKEND_PORT / _HOST / _TOKEN`（值来自 `.runtime.json`）→ 子进程日志重定向到 `logs/<name>.log`，`CREATE_NO_WINDOW`。`_monitor` 线程负责异常退出后按退避时间自动拉起；手动停止写入 `stopped` 标记则不再拉起。
@@ -63,6 +63,8 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 
 ## WebUI API
 
+除 `/`（页面）与 `/icon.png` / `/icon-256.png`（图标）外，所有请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`（token 为空时不校验）。
+
 - `GET /api/backends`：卡片数据（含 `port`/`host`/`token`/`running`/`uptime_secs`/`restarts`/`mem_*`/`deps_ready`）
 - `GET|POST /api/config/<name>`：查询/保存 {port, token, host}
 - `POST /api/port/<name>`、`/api/port/<name>/reset`：旧版端口接口（写同一份配置，保留兼容）
@@ -78,6 +80,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 - 确保不弹黑框：任何在 WebUI/后台（无控制台）进程里执行的子进程调用，Windows 下必须带 `CREATE_NO_WINDOW`——统一用 `launcher._no_window_kwargs()` 注入，新增 git 命令一律走该辅助函数；改完用 `rg -n "subprocess"` 排查所有调用点，逐处确认。
 - 日志统一 UTF-8：子进程环境加 `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1`（同 `Supervisor.spawn` 的写法）。
 - 运行时配置读写只通过 `launcher.backend_config()` / `save_backend_config()`，不要直接改 `.runtime.json` 结构。
+- WebUI 的端口/监听地址/访问 token 配置统一走 `launcher.configure_webui_*()`，`launcher.py` 与 `errorbackend.py` 都要有对应子命令（`webui-port` / `webui-host` / `webui-token`），改后自动重启 WebUI。
 - 端口约定：WebUI 默认 8911；新增后端默认端口避开其他后端生态常用端口（8910 / 3009 / 3010 / 3910 / 37632 / 46678 / 46799），也不与本项目已有后端重复（当前 `ocr` 默认 18699，与海豹插件默认配置一致）。
 - 命令行与 WebUI 共用同一套后端进程与状态（`logs/state.json`），改动两处入口都要同步（如新增子命令：`launcher.py` + `errorbackend.py` + README）。
 - 平台差异：Windows 与 Linux 行为保持一致；系统服务类命令在非 Linux 平台提示「仅支持 Linux」并不展示在 help（`errorbackend` 的 cmd_help 按 `os.name` 过滤）。

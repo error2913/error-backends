@@ -26,7 +26,7 @@
 git clone https://github.com/error2913/error-backends.git && cd error-backends && python launcher.py
 ```
 
-一条命令搞定全部：首次运行自动安装所需依赖，并在**后台启动**管理界面（不占用终端、无控制台窗口），随后自动打开 http://127.0.0.1:8911（仅本机；无图形环境的 Linux 服务器不尝试开浏览器，直接访问该地址即可）。停止后台 WebUI：`python launcher.py webui-stop` 或 `errorbackend webui-stop`。所有管理都在页面里完成：
+一条命令搞定全部：首次运行自动安装所需依赖、生成 WebUI 访问 token，并在**后台启动**管理界面（不占用终端、无控制台窗口），命令执行完即退出。WebUI 默认监听 `0.0.0.0:8911`，启动输出里会打印访问地址与 token（无图形环境的 Linux 服务器不会尝试开浏览器）。停止后台 WebUI：`python launcher.py webui-stop` 或 `errorbackend webui-stop`。所有管理都在页面里完成：
 
 - 首次启动某后端时，按钮显示「安装依赖」：点击后创建独立 venv / 执行 `npm install`，弹窗实时显示日志、按钮转圈，装完恢复为「启动」；之后再次启动不再安装，秒开
 - 有后端依赖未安装时，右上角出现「安装全部依赖」，可一键补齐
@@ -38,6 +38,8 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 - 后端进程异常退出会自动拉起
 
 > 按需安装：每个后端只安装自己缺失的依赖，不会预装全部；依赖清单（`requirements.txt` / `package.json`）变化后会自动重新安装。Python 后端使用独立 venv，Node 后端使用各自的 `node_modules`。
+
+> WebUI 访问 token 首次运行自动生成，`errorbackend webui-token` 可查看/修改；页面首次打开会弹框输入 token，接口请求也可带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。
 
 ## 跨平台
 
@@ -121,7 +123,7 @@ token 非空时，后端应校验请求头 `Authorization: Bearer <token>` 或 `
 
 ## 端口约定
 
-本项目的默认 WebUI 端口为 **8911**（`errorbackend webui-port` 可改）。新增后端选择默认端口时，请避开以下其他后端生态常用端口（避免与本机已有服务冲突），也不要与本项目已有后端重复：
+本项目的 WebUI 默认监听 **0.0.0.0:8911**（`errorbackend webui-port` / `webui-host` 可改），带访问 token 鉴权。新增后端选择默认端口时，请避开以下其他后端生态常用端口（避免与本机已有服务冲突），也不要与本项目已有后端重复：
 
 `8910`、`3009`、`3010`、`3910`、`37632`、`46678`、`46799`
 
@@ -139,6 +141,8 @@ assets/                WebUI 图标（当前为作者 GitHub 头像）
 ## 管理方式
 
 管理全部通过 WebUI 完成：后端启停、依赖安装/删除、配置修改、运行日志都在页面里操作。端口/token/监听 IP 写入 `.runtime.json`（已 gitignore），启动时通过环境变量传给后端：`ERROR_BACKEND_PORT`、`ERROR_BACKEND_TOKEN`（非空时后端校验 `Authorization: Bearer <token>` 或 `X-Token: <token>`）、`ERROR_BACKEND_HOST`。
+
+WebUI 自身同样有访问 token（首次运行自动生成）：`errorbackend webui-token` 查看/修改、`webui-host` 修改监听地址，改完自动重启 WebUI。
 
 ## 命令行（errorbackend）
 
@@ -165,6 +169,8 @@ errorbackend update                         # 从 Git 拉取项目更新（手�
 errorbackend webui                          # 后台启动 Web 管理界面（不占终端）
 errorbackend webui-stop                     # 停止后台 WebUI
 errorbackend webui-port 9000                # 查看/修改 WebUI 端口（修改后自动重启）
+errorbackend webui-host 0.0.0.0             # 查看/修改 WebUI 监听地址（修改后自动重启）
+errorbackend webui-token <token>            # 查看/修改 WebUI 访问 token（修改后自动重启）
 errorbackend uninstall                      # 卸载 errorbackend 命令（删除命令与 PATH 配置）
 errorbackend service-install                # [Linux] 注册 systemd 服务（开机自启 + 自动拉起）
 errorbackend service-uninstall              # [Linux] 停止并移除 systemd 服务
