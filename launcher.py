@@ -4,7 +4,7 @@
 错误后端（error-backends）管理入口（仅依赖 Python 标准库）。
 
 直接运行本脚本：自动检查/安装 WebUI 自身依赖，然后启动 Web 管理界面
-（默认监听 0.0.0.0:8911，首次运行自动生成访问 token），后端安装、启停、
+（默认监听 0.0.0.0，端口与访问 token 首次运行随机生成），后端安装、启停、
 端口管理都在页面里完成。每次启动自动安装/刷新 errorbackend 命令行（幂等），
 运行本脚本启动后台 WebUI 后即退出，不占用终端。
 """
@@ -114,9 +114,20 @@ def effective_port(backend: Backend) -> int:
     return backend_config(backend)["port"]
 
 
-def effective_webui_port(default: int = 8911) -> int:
-    """WebUI 管理界面端口：优先 .runtime.json 中的覆盖值，否则默认 8911"""
-    return int(load_runtime().get("webui", {}).get("port", default))
+def effective_webui_port() -> int:
+    """WebUI 管理界面端口：优先 .runtime.json 中的覆盖值；首次运行随机生成五位数端口（10000-65535，
+    避开已收录后端的端口）并保存，之后保持稳定"""
+    rt = load_runtime()
+    port = rt.get("webui", {}).get("port")
+    if not port:
+        reserved = {b.port for b in discover_backends()}
+        while True:
+            port = 10000 + secrets.randbelow(55536)  # 10000-65535
+            if port not in reserved:
+                break
+        rt.setdefault("webui", {})["port"] = int(port)
+        save_runtime(rt)
+    return int(port)
 
 
 def save_webui_port(port: int) -> None:
@@ -139,7 +150,7 @@ def configure_webui_port(value=None) -> int:
         return effective_webui_port()
     if value == "reset":
         reset_webui_port()
-        port = 8911
+        port = effective_webui_port()  # 重新随机生成
     else:
         try:
             port = int(value)
@@ -1154,11 +1165,11 @@ def main() -> None:
     sub.add_parser("package", help="打包 backends/ 为 zip")
     webui_p = sub.add_parser("webui", help="启动 Web 管理界面")
     webui_p.add_argument("--host", default=None, help="监听地址（默认取 webui-host 配置，未配置为 0.0.0.0）")
-    webui_p.add_argument("--port", type=int, default=None, help="监听端口（默认取 webui-port 配置，未配置为 8911）")
+    webui_p.add_argument("--port", type=int, default=None, help="监听端口（默认取 webui-port 配置，首次运行随机生成五位数）")
     webui_p.add_argument("--no-browser", action="store_true", help="启动后不自动打开浏览器")
     sub.add_parser("webui-stop", help="停止后台 WebUI")
     webui_port_p = sub.add_parser("webui-port", help="查看/修改 WebUI 端口（修改后自动重启 WebUI）")
-    webui_port_p.add_argument("value", nargs="?", help="新端口 1-65535，或 reset 恢复默认 8911")
+    webui_port_p.add_argument("value", nargs="?", help="新端口 1-65535，或 reset 重新随机生成")
     webui_host_p = sub.add_parser("webui-host", help="查看/修改 WebUI 监听地址（修改后自动重启 WebUI）")
     webui_host_p.add_argument("value", nargs="?", help="监听地址(如 0.0.0.0 / 127.0.0.1)，或 reset 恢复默认 0.0.0.0")
     webui_token_p = sub.add_parser("webui-token", help="查看/修改 WebUI 访问 token（修改后自动重启 WebUI）")
@@ -1235,9 +1246,9 @@ def main() -> None:
             print(f"[launcher] {e}")
             sys.exit(1)
         if args.value is None:
-            print(f"[launcher] WebUI 端口: {port}（默认 8911，保存在 .runtime.json）")
+            print(f"[launcher] WebUI 端口: {port}（首次运行随机生成，保存在 .runtime.json）")
         elif args.value == "reset":
-            print(f"[launcher] WebUI 端口已恢复默认 8911")
+            print(f"[launcher] WebUI 端口已重新随机生成: {port}")
         else:
             print(f"[launcher] WebUI 端口已设为 {port}")
         return

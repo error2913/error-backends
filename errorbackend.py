@@ -392,9 +392,9 @@ def cmd_webui_port(args):
         print(str(e))
         sys.exit(1)
     if args.value is None:
-        print(f"WebUI 端口: {port}（默认 8911）")
+        print(f"WebUI 端口: {port}（首次运行随机生成）")
     elif args.value == "reset":
-        print("WebUI 端口已恢复默认 8911")
+        print(f"WebUI 端口已重新随机生成: {port}")
     else:
         print(f"WebUI 端口已设为 {port}")
 
@@ -567,7 +567,7 @@ def build_parser():
     webui_p.add_argument("--no-browser", action="store_true")
     sub.add_parser("webui-stop", help="停止后台 WebUI")
     webui_port_p = sub.add_parser("webui-port", help="查看/修改 WebUI 端口（修改后自动重启 WebUI）")
-    webui_port_p.add_argument("value", nargs="?", help="新端口 1-65535，或 reset 恢复默认 8911")
+    webui_port_p.add_argument("value", nargs="?", help="新端口 1-65535，或 reset 重新随机生成")
     webui_host_p = sub.add_parser("webui-host", help="查看/修改 WebUI 监听地址（修改后自动重启 WebUI）")
     webui_host_p.add_argument("value", nargs="?", help="监听地址(如 0.0.0.0 / 127.0.0.1)，或 reset 恢复默认 0.0.0.0")
     webui_token_p = sub.add_parser("webui-token", help="查看/修改 WebUI 访问 token（修改后自动重启 WebUI）")
