@@ -144,6 +144,8 @@ assets/                WebUI 图标（当前为作者 GitHub 头像）
 
 WebUI 自身同样有访问 token（首次运行自动生成）：页面先登录（记住一年），右上角「🔑 Token」可直接输入新 token 保存并立即生效，或 `errorbackend webui-token` 命令行修改；`webui-host` 修改监听地址，改完自动重启 WebUI。
 
+右上角「🔄 重启 WebUI」可让管理界面重新加载后端清单（新增/修改后端、代码更新后无需手动重启进程）；命令行等价命令 `errorbackend webui-restart`。
+
 ## 命令行（errorbackend）
 
 `errorbackend` 命令由 launcher 启动时自动安装（写入用户 PATH，Windows 会广播环境变更、Linux 写入 shell 配置；新打开的终端即可使用）。也可以手动安装：
