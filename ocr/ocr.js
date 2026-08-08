@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createWorker } from 'tesseract.js';
 
@@ -8,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LANG_DIR = process.env.OCR_LANG_DIR || path.join(__dirname, 'lang-data');
 const CACHE_DIR = process.env.OCR_CACHE_DIR || path.join(__dirname, 'cache');
 const DEFAULT_LANG = process.env.OCR_DEFAULT_LANG || 'chi_sim+eng';
+const LANG_MIRROR = process.env.OCR_LANG_MIRROR || 'https://tessdata.projectnaptha.com/4.0.0';
 
 let worker = null;
 let workerLang = null;
@@ -30,7 +32,30 @@ function enqueue(fn) {
   return run;
 }
 
+// 确保 lang-data 里有请求的语言包，缺失则自动下载（.traineddata.gz）
+async function ensureLangFiles(langs) {
+  const list = typeof langs === 'string'
+    ? langs.split('+').map((s) => s.trim()).filter(Boolean)
+    : [];
+  if (list.length === 0) return;
+  mkdirSync(LANG_DIR, { recursive: true });
+  for (const lang of list) {
+    const file = path.join(LANG_DIR, `${lang}.traineddata.gz`);
+    if (existsSync(file)) continue;
+    const url = `${LANG_MIRROR}/${lang}.traineddata.gz`;
+    console.log(`[ocr] 语言包缺失，下载 ${url}`);
+    const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+    if (!res.ok) {
+      throw new Error(`语言包下载失败 ${lang}: HTTP ${res.status}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    await fsp.writeFile(file, buf);
+    console.log(`[ocr] 语言包已就绪 ${lang} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`);
+  }
+}
+
 async function getWorker(lang) {
+  await ensureLangFiles(lang);
   if (!worker) {
     mkdirSync(LANG_DIR, { recursive: true });
     mkdirSync(CACHE_DIR, { recursive: true });
@@ -86,6 +111,7 @@ export function stats() {
     pendingJobs,
     totalJobs,
     defaultLang: DEFAULT_LANG,
+    langMirror: LANG_MIRROR,
     langDir: LANG_DIR,
     cacheDir: CACHE_DIR,
   };

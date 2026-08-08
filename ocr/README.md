@@ -1,6 +1,6 @@
 # OCR 后端（Node.js + tesseract.js）
 
-已收录进 [error-backends](../../README.md)（错误后端），默认端口 **18699**（与海豹插件默认配置一致，无需改插件地址）。源码来自 `sealdice-OCR-plugin/backend`，仅做了 launcher 契约适配（`ERROR_BACKEND_*` 环境变量与 token 鉴权）。
+已收录进 [error-backends](../../README.md)（错误后端），默认端口 **18699**（与海豹插件默认配置一致，无需改插件地址）。源码来自 `sealdice-OCR-plugin` 项目的后端部分（已迁入本仓库），仅做了 launcher 契约适配（`ERROR_BACKEND_*` 环境变量与 token 鉴权）。
 
 ## 启动
 
@@ -11,7 +11,8 @@ errorbackend setup ocr      # 安装依赖
 errorbackend start ocr      # 启动
 ```
 
-首次启动后，可先预下载语言包（可选，不下载则首次识别时按需拉取）：
+首次启动后，可先预下载语言包（可选）：不预下载也没关系，首次识别时后端会自动从
+`OCR_LANG_MIRROR` 下载缺失的 `.traineddata.gz` 到 `lang-data/`。
 
 ```bash
 cd ocr && npm run setup-langs   # 预下载 eng,chi_sim 到 lang-data/
@@ -60,6 +61,7 @@ npm start             # 默认 http://127.0.0.1:18699
   "pendingJobs": 0,
   "totalJobs": 3,
   "defaultLang": "chi_sim+eng",
+  "langMirror": "https://tessdata.projectnaptha.com/4.0.0",
   "langDir": "...",
   "cacheDir": "..."
 }
