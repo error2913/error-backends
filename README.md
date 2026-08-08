@@ -26,7 +26,7 @@
 git clone https://github.com/error2913/error-backends.git && cd error-backends && python launcher.py
 ```
 
-一条命令搞定全部：首次运行自动安装所需依赖，并在**后台启动**管理界面（不占用终端、无控制台窗口），随后自动打开 http://127.0.0.1:8911（仅本机）。停止后台 WebUI：`python launcher.py webui-stop` 或 `errorbackend webui-stop`。所有管理都在页面里完成：
+一条命令搞定全部：首次运行自动安装所需依赖，并在**后台启动**管理界面（不占用终端、无控制台窗口），随后自动打开 http://127.0.0.1:8911（仅本机；无图形环境的 Linux 服务器不尝试开浏览器，直接访问该地址即可）。停止后台 WebUI：`python launcher.py webui-stop` 或 `errorbackend webui-stop`。所有管理都在页面里完成：
 
 - 首次启动某后端时，按钮显示「安装依赖」：点击后创建独立 venv / 执行 `npm install`，弹窗实时显示日志、按钮转圈，装完恢复为「启动」；之后再次启动不再安装，秒开
 - 有后端依赖未安装时，右上角出现「安装全部依赖」，可一键补齐
