@@ -183,6 +183,17 @@ PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
+<div id="loginScreen" style="position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:100;">
+  <div style="width:min(360px,92vw); background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px; display:grid; gap:14px; text-align:center; box-shadow:0 12px 32px var(--shadow);">
+    <div style="font-size:20px; font-weight:700;">错误后端管理</div>
+    <div style="color:var(--muted); font-size:13px;">请输入 WebUI token（登录后记住一年）</div>
+    <input id="loginToken" type="password" spellcheck="false" autocomplete="off" placeholder="访问 token"
+           style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:9px; background:var(--panel-2); color:var(--text); font-size:14px; outline:none;"
+           onkeydown="if(event.key==='Enter')login()">
+    <button class="primary" onclick="login()" style="padding:10px 0; font-size:14px;">登录</button>
+    <div id="loginErr" style="color:var(--red); font-size:12px; min-height:16px;"></div>
+  </div>
+</div>
 <div class="wrap">
   <header>
     <img class="logo" src="/icon-256.png" alt="错误后端">
@@ -275,22 +286,15 @@ PAGE = """<!DOCTYPE html>
           <input id="tokServer" class="port" type="text" readonly spellcheck="false" placeholder="加载中...">
         </div>
       </label>
-      <label class="cfg-label">新 Token（留空不修改，保存后立即生效）
+      <label class="cfg-label">新 Token（直接输入，保存后立即生效）
         <div class="cfg-row">
-          <input id="tokNew" class="port" type="text" spellcheck="false" placeholder="留空表示不修改">
+          <input id="tokNew" class="port" type="text" spellcheck="false" placeholder="输入新 token">
           <button class="mini" onclick="genToken()" title="随机生成新 token">🎲 随机</button>
-        </div>
-      </label>
-      <label class="cfg-label">浏览器存储 Token（请求自动携带；服务器 token 被外部修改时在此更新）
-        <div class="cfg-row">
-          <input id="tokLocal" class="port" type="text" spellcheck="false" placeholder="粘贴服务器 token">
-          <button class="mini" onclick="clearLocalToken()" title="清除浏览器记录">清除</button>
         </div>
       </label>
     </div>
     <div style="padding:12px 18px; text-align:right; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end;">
       <button onclick="closeToken()">取消</button>
-      <button onclick="saveLocalToken()">保存到浏览器</button>
       <button class="primary" onclick="saveServerToken()">保存并生效</button>
     </div>
   </div>
@@ -306,6 +310,8 @@ const deleting = new Set();
 let allInstalling = false;
 let allTargets = [];
 let allDone = 0;
+const TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000;  // 登录后记住一年
+let loggedIn = false;
 function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtUptime(s){
   if (s == null) return '—';
@@ -316,35 +322,68 @@ function fmtUptime(s){
   return sec + '秒';
 }
 function toast(msg, ms){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', ms || 3000); }
+function getStoredToken(){
+  const t = localStorage.getItem('webui_token');
+  const exp = Number(localStorage.getItem('webui_token_exp') || 0);
+  if (t && exp && Date.now() > exp) {
+    localStorage.removeItem('webui_token');
+    localStorage.removeItem('webui_token_exp');
+    return '';
+  }
+  return t || '';
+}
+function setStoredToken(v){
+  if (v) {
+    localStorage.setItem('webui_token', v);
+    localStorage.setItem('webui_token_exp', String(Date.now() + TOKEN_TTL_MS));
+  } else {
+    localStorage.removeItem('webui_token');
+    localStorage.removeItem('webui_token_exp');
+  }
+}
 async function api(path, method, body){
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const headers = {};
-    const t = localStorage.getItem('webui_token');
-    if (t) headers['X-Token'] = t;
-    try {
-      const r = await fetch(path, {method: method||'GET', headers: headers, body: body || undefined});
-      if (r.status === 401 && attempt === 0) {
-        if (!document.getElementById('tokenModal').classList.contains('open')) openToken();
-        throw new Error('需要 WebUI token');
-      }
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.message || ('HTTP ' + r.status));
-      return j;
-    } catch(e){
-      if (!document.getElementById('tokenModal').classList.contains('open')) toast('请求失败: ' + e.message);
-      throw e;
+  const headers = {};
+  const t = getStoredToken();
+  if (t) headers['X-Token'] = t;
+  try {
+    const r = await fetch(path, {method: method||'GET', headers: headers, body: body || undefined});
+    if (r.status === 401) {
+      loggedIn = false;
+      showLogin();
+      throw new Error('需要 WebUI token');
     }
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.message || ('HTTP ' + r.status));
+    return j;
+  } catch(e){
+    if (!(e && e.message === '需要 WebUI token') && !document.getElementById('tokenModal').classList.contains('open')) toast('请求失败: ' + e.message);
+    throw e;
+  }
+}
+function showLogin(){ document.getElementById('loginScreen').style.display = 'flex'; }
+function hideLogin(){ document.getElementById('loginScreen').style.display = 'none'; }
+async function login(){
+  const v = document.getElementById('loginToken').value.trim();
+  const err = document.getElementById('loginErr');
+  if (!v) { err.textContent = '请输入 token'; return; }
+  setStoredToken(v);
+  try {
+    await refresh();
+    loggedIn = true;
+    hideLogin();
+    err.textContent = '';
+  } catch(e) {
+    setStoredToken('');
+    err.textContent = 'token 错误，请重试';
   }
 }
 function openToken(){
-  const m = document.getElementById('tokenModal');
-  m.classList.add('open');
-  document.getElementById('tokLocal').value = localStorage.getItem('webui_token') || '';
+  document.getElementById('tokenModal').classList.add('open');
   document.getElementById('tokNew').value = '';
   api('/api/webui-token').then(j => {
     document.getElementById('tokServer').value = j.token || '';
   }).catch(() => {
-    document.getElementById('tokServer').value = '(未授权，请先输入正确 token 并「保存到浏览器」)';
+    document.getElementById('tokServer').value = '(无法读取，请重试)';
   });
 }
 function closeToken(){ document.getElementById('tokenModal').classList.remove('open'); }
@@ -353,24 +392,11 @@ function genToken(){
   crypto.getRandomValues(bytes);
   document.getElementById('tokNew').value = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
-function clearLocalToken(){
-  localStorage.removeItem('webui_token');
-  document.getElementById('tokLocal').value = '';
-  toast('已清除浏览器 token');
-}
-function saveLocalToken(){
-  const v = document.getElementById('tokLocal').value.trim();
-  if (v) localStorage.setItem('webui_token', v);
-  else localStorage.removeItem('webui_token');
-  closeToken();
-  toast('浏览器 token 已保存');
-  refresh();
-}
 async function saveServerToken(){
   const v = document.getElementById('tokNew').value.trim();
   if (!v) { toast('请输入新 token，或点击 🎲 随机生成'); return; }
   const j = await api('/api/webui-token', 'POST', JSON.stringify({ token: v }));
-  localStorage.setItem('webui_token', j.token);
+  setStoredToken(j.token);
   closeToken();
   toast('WebUI token 已更新并立即生效');
   refresh();
@@ -570,8 +596,13 @@ async function loadLog(){
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape'){ closeLog(); closeAlert(); closeConfig(); closeToken(); } });
 applyTheme();
-refresh();
-setInterval(refresh, 1000);
+setInterval(() => { if (loggedIn) refresh().catch(() => {}); }, 1000);
+(async () => {
+  if (getStoredToken()) {
+    try { await refresh(); loggedIn = true; hideLogin(); return; } catch(e){}
+  }
+  showLogin();
+})();
 </script>
 </body>
 </html>"""

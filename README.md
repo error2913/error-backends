@@ -39,7 +39,7 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 
 > 按需安装：每个后端只安装自己缺失的依赖，不会预装全部；依赖清单（`requirements.txt` / `package.json`）变化后会自动重新安装。Python 后端使用独立 venv，Node 后端使用各自的 `node_modules`。
 
-> WebUI 访问 token 首次运行自动生成；页面右上角「🔑 Token」可直接查看/修改/随机生成，`errorbackend webui-token` 命令行同样可改；接口请求可带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。
+> WebUI 访问 token 首次运行自动生成；打开页面先出现 token 登录页，登录后浏览器记住一年；右上角「🔑 Token」可直接查看/修改/随机生成，`errorbackend webui-token` 命令行同样可改；接口请求可带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。
 
 ## 跨平台
 
@@ -142,7 +142,7 @@ assets/                WebUI 图标（当前为作者 GitHub 头像）
 
 管理全部通过 WebUI 完成：后端启停、依赖安装/删除、配置修改、运行日志都在页面里操作。端口/token/监听 IP 写入 `.runtime.json`（已 gitignore），启动时通过环境变量传给后端：`ERROR_BACKEND_PORT`、`ERROR_BACKEND_TOKEN`（非空时后端校验 `Authorization: Bearer <token>` 或 `X-Token: <token>`）、`ERROR_BACKEND_HOST`。
 
-WebUI 自身同样有访问 token（首次运行自动生成）：页面右上角「🔑 Token」可查看/修改/随机生成（立即生效），或 `errorbackend webui-token` 命令行修改；`webui-host` 修改监听地址，改完自动重启 WebUI。
+WebUI 自身同样有访问 token（首次运行自动生成）：页面先登录（记住一年），右上角「🔑 Token」可直接输入新 token 保存并立即生效，或 `errorbackend webui-token` 命令行修改；`webui-host` 修改监听地址，改完自动重启 WebUI。
 
 ## 命令行（errorbackend）
 
