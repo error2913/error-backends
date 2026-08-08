@@ -791,14 +791,21 @@ def start_webui_background(host: str = None, port: int = None, open_browser: boo
     if os.path.exists(WEBUI_PID_FILE):
         try:
             with open(WEBUI_PID_FILE, encoding="utf-8") as f:
-                old_pid = int(f.read().strip() or 0)
+                parts = (f.read().strip() or "").split()
+            old_pid = int(parts[0]) if parts else 0
+            old_host = parts[1] if len(parts) > 1 else None
+            old_port = int(parts[2]) if len(parts) > 2 else None
             if old_pid and Supervisor._pid_alive(old_pid):
-                url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
-                print(f"[launcher] WebUI 已在后台运行 (pid={old_pid})，无需重复启动: {url}")
-                print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
-                if open_browser and _can_open_browser():
-                    webbrowser.open(url)
-                return old_pid
+                if old_host != host or old_port != port:
+                    print(f"[launcher] 旧 WebUI 监听配置不同（{old_host or '未知'}:{old_port or '未知'} → {host}:{port}），自动重启...")
+                    stop_webui()
+                else:
+                    url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
+                    print(f"[launcher] WebUI 已在后台运行 (pid={old_pid})，无需重复启动: {url}")
+                    print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
+                    if open_browser and _can_open_browser():
+                        webbrowser.open(url)
+                    return old_pid
         except (OSError, ValueError):
             pass
     script = os.path.abspath(__file__)
@@ -827,12 +834,25 @@ def start_webui_background(host: str = None, port: int = None, open_browser: boo
         **kwargs,
     )
     with open(WEBUI_PID_FILE, "w", encoding="utf-8") as f:
-        f.write(str(proc.pid))
+        f.write(f"{proc.pid} {host} {port}")
     url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
     print(f"[launcher] WebUI 已在后台启动: {url} (pid={proc.pid}, 日志=logs/webui.log)")
     print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
     if open_browser and _can_open_browser():
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    time.sleep(1.0)
+    if proc.poll() is not None:
+        try:
+            with open(os.path.join(log_dir, "webui.log"), encoding="utf-8", errors="replace") as f:
+                tail = "".join(f.readlines()[-10:])
+        except OSError:
+            tail = "(无法读取日志)"
+        print(f"[launcher] WebUI 启动失败（进程已退出），最近日志：\n{tail}", file=sys.stderr)
+        try:
+            os.remove(WEBUI_PID_FILE)
+        except OSError:
+            pass
+        return 0
     return proc.pid
 
 
@@ -843,7 +863,7 @@ def stop_webui() -> bool:
         return False
     try:
         with open(WEBUI_PID_FILE, encoding="utf-8") as f:
-            pid = int(f.read().strip() or 0)
+            pid = int((f.read().strip() or "0").split()[0])
     except (OSError, ValueError):
         pid = 0
     stopped = False

@@ -12,6 +12,7 @@
 - WebUI 默认监听 0.0.0.0，首次运行自动生成访问 token（`webui-token` 查看/修改、`webui-host` 改监听地址，改后自动重启）
 - 新增 `errorbackend webui-host` / `webui-token` 命令；launcher 启动后台 WebUI 后即退出，不占用终端
 - launcher 每次启动自动安装/刷新 `errorbackend` 命令行（幂等，Windows 广播 PATH 变更、Linux 写入 shell 配置且不重复追加）
+- WebUI 启动自愈：检测到旧进程监听配置与当前不一致（host/port）时自动重启；后台子进程启动即崩溃时打印最近日志，避免“端口被旧进程占用”静默失败
 
 ## 0.1.0 - 2026-08-08
 

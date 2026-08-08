@@ -38,7 +38,7 @@ errorbackend help                      # 查看所有命令
 
 - `.runtime.json`：每后端运行时配置 `config/<name> = {port, token, host}`；`ports` 为旧版字段（读兼容、写同步）；`webui` 为 WebUI 管理界面配置：`port`（默认 8911）、`host`（默认 0.0.0.0）、`token`（首次运行自动生成），命令行 `webui-port` / `webui-host` / `webui-token` 读写，修改后自动重启 WebUI。读写统一走 `launcher.backend_config()` / `save_backend_config()` / `configure_webui_port()` / `configure_webui_host()` / `configure_webui_token()`。
 - `logs/state.json`：Supervisor 进程状态（`pid`、`started_at`、`restarts`、`stopped` 标记）。
-- `logs/webui.pid`：后台 WebUI 进程号。
+- `logs/webui.pid`：后台 WebUI 进程号（格式：`pid host port`，兼容旧版纯 pid；`stop_webui` 只取第一段）。
 - `logs/<backend>.log`：各后端日志；`logs/webui.log`：WebUI 日志。
 
 ## 关键流程
