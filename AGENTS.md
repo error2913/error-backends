@@ -15,7 +15,7 @@
 ## 快速启动
 
 ```bash
-python launcher.py                     # 首次自动装依赖并后台启动 WebUI: http://127.0.0.1:8911
+python launcher.py                     # 首次自动装依赖并后台启动 WebUI（端口/token 随机生成，以启动输出为准）
 python launcher.py webui-stop          # 停止后台 WebUI
 python install_cli.py                  # 安装 errorbackend 命令（Windows 生成 .cmd，Linux 写入 shell 配置）
 errorbackend help                      # 查看所有命令
@@ -36,7 +36,7 @@ errorbackend help                      # 查看所有命令
 
 ## 数据与状态文件（logs/ 与根目录，均 gitignore）
 
-- `.runtime.json`：每后端运行时配置 `config/<name> = {port, token, host}`；`ports` 为旧版字段（读兼容、写同步）；`webui` 为 WebUI 管理界面配置：`port`（默认 8911）、`host`（默认 0.0.0.0）、`token`（首次运行自动生成），命令行 `webui-port` / `webui-host` / `webui-token` 读写，修改后自动重启 WebUI。读写统一走 `launcher.backend_config()` / `save_backend_config()` / `configure_webui_port()` / `configure_webui_host()` / `configure_webui_token()`。
+- `.runtime.json`：每后端运行时配置 `config/<name> = {port, token, host}`；`ports` 为旧版字段（读兼容、写同步）；`webui` 为 WebUI 管理界面配置：`port`（首次运行随机生成五位数，避开已收录后端端口）、`host`（默认 0.0.0.0）、`token`（首次运行自动生成），命令行 `webui-port` / `webui-host` / `webui-token` 读写，修改后自动重启 WebUI。读写统一走 `launcher.backend_config()` / `save_backend_config()` / `configure_webui_port()` / `configure_webui_host()` / `configure_webui_token()`。
 - `logs/state.json`：Supervisor 进程状态（`pid`、`started_at`、`restarts`、`stopped` 标记）。
 - `logs/webui.pid`：后台 WebUI 进程号（格式：`pid host port`，兼容旧版纯 pid；`stop_webui` 只取第一段）。
 - `logs/<backend>.log`：各后端日志；`logs/webui.log`：WebUI 日志。
@@ -69,6 +69,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 除 `/`（页面）与 `/icon.png` / `/icon-256.png`（图标）外，所有请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`（token 为空时不校验）。
 
 - `GET /api/backends`：卡片数据（含 `port`/`host`/`token`/`running`/`uptime_secs`/`restarts`/`mem_*`/`deps_ready`）
+- `GET /api/webui-token`：查看当前 WebUI token；`POST /api/webui-token`：body `{token}` 修改或 `{reset:true}` 重新随机生成（改完立即生效，无需重启）
 - `GET|POST /api/config/<name>`：查询/保存 {port, token, host}
 - `POST /api/port/<name>`、`/api/port/<name>/reset`：旧版端口接口（写同一份配置，保留兼容）
 - `POST /api/setup/<name>`、`/api/deps-delete/<name>`、`GET /api/setup-log/<name>`：依赖安装/删除/日志轮询
@@ -84,7 +85,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 - 日志统一 UTF-8：子进程环境加 `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1`（同 `Supervisor.spawn` 的写法）。
 - 运行时配置读写只通过 `launcher.backend_config()` / `save_backend_config()`，不要直接改 `.runtime.json` 结构。
 - WebUI 的端口/监听地址/访问 token 配置统一走 `launcher.configure_webui_*()`，`launcher.py` 与 `errorbackend.py` 都要有对应子命令（`webui-port` / `webui-host` / `webui-token`），改后自动重启 WebUI。
-- 端口约定：WebUI 默认 8911；新增后端默认端口避开其他后端生态常用端口（8910 / 3009 / 3010 / 3910 / 37632 / 46678 / 46799），也不与本项目已有后端重复（当前 `ocr` 默认 18699，与海豹插件默认配置一致）。
+- 端口约定：WebUI 端口首次运行随机生成（10000-65535，避开已收录后端端口）；新增后端默认端口避开本机已有服务端口，也不与本项目已有后端重复（当前 `ocr` 默认 18699，与海豹插件默认配置一致）。
 - 命令行与 WebUI 共用同一套后端进程与状态（`logs/state.json`），改动两处入口都要同步（如新增子命令：`launcher.py` + `errorbackend.py` + README）。
 - 平台差异：Windows 与 Linux 行为保持一致；系统服务类命令在非 Linux 平台提示「仅支持 Linux」并不展示在 help（`errorbackend` 的 cmd_help 按 `os.name` 过滤）。
 - 更新日志：改动记录进 CHANGELOG.md（日常写在 `Unreleased`）。

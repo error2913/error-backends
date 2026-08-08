@@ -6,9 +6,10 @@
 由 launcher.py 直接启动：
   python launcher.py
 
-（也可用 python launcher.py webui [--host 0.0.0.0] [--port 8911] [--no-browser] 调整参数）
+（也可用 python launcher.py webui [--host 0.0.0.0] [--port <端口>] [--no-browser] 调整参数）
 
 默认监听 0.0.0.0（全部网卡），访问 token 首次运行自动生成（launcher webui-token 可改），
+端口首次运行随机生成五位数（launcher webui-port 可改），
 API 请求需带 Authorization: Bearer <token> 或 X-Token: <token>。
 """
 
@@ -27,14 +28,17 @@ from launcher import (
     DEFAULT_LOG_DIR,
     Supervisor,
     backend_config,
+    effective_webui_port,
     deps_ready,
     effective_webui_host,
     effective_webui_token,
     load_runtime,
     process_memory,
     remove_backend_deps,
+    reset_webui_token,
     save_backend_config,
     save_runtime,
+    save_webui_token,
     update_project,
 )
 
@@ -188,7 +192,7 @@ PAGE = """<!DOCTYPE html>
     </div>
     <div class="header-right">
       <button id="themeBtn" onclick="cycleTheme()">主题</button>
-      <button onclick="setToken()">🔑 Token</button>
+      <button onclick="openToken()">🔑 Token</button>
       <button onclick="updateNow()">⬆ 更新</button>
       <button onclick="refresh()">⟳ 刷新</button>
     </div>
@@ -258,6 +262,39 @@ PAGE = """<!DOCTYPE html>
     </div>
   </div>
 </div>
+<div class="modal" id="tokenModal">
+  <div class="dialog" style="width:min(460px,92vw)">
+    <div class="dialog-head">
+      <b>WebUI Token</b>
+      <span class="spacer"></span>
+      <button class="close" onclick="closeToken()">✕</button>
+    </div>
+    <div style="padding:18px 22px; display:grid; gap:16px;">
+      <label class="cfg-label">服务器当前 Token（已生效）
+        <div class="cfg-row">
+          <input id="tokServer" class="port" type="text" readonly spellcheck="false" placeholder="加载中...">
+        </div>
+      </label>
+      <label class="cfg-label">新 Token（留空不修改，保存后立即生效）
+        <div class="cfg-row">
+          <input id="tokNew" class="port" type="text" spellcheck="false" placeholder="留空表示不修改">
+          <button class="mini" onclick="genToken()" title="随机生成新 token">🎲 随机</button>
+        </div>
+      </label>
+      <label class="cfg-label">浏览器存储 Token（请求自动携带；服务器 token 被外部修改时在此更新）
+        <div class="cfg-row">
+          <input id="tokLocal" class="port" type="text" spellcheck="false" placeholder="粘贴服务器 token">
+          <button class="mini" onclick="clearLocalToken()" title="清除浏览器记录">清除</button>
+        </div>
+      </label>
+    </div>
+    <div style="padding:12px 18px; text-align:right; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end;">
+      <button onclick="closeToken()">取消</button>
+      <button onclick="saveLocalToken()">保存到浏览器</button>
+      <button class="primary" onclick="saveServerToken()">保存并生效</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 <footer>error-backends · launcher.py webui</footer>
 <script>
@@ -287,21 +324,55 @@ async function api(path, method, body){
     try {
       const r = await fetch(path, {method: method||'GET', headers: headers, body: body || undefined});
       if (r.status === 401 && attempt === 0) {
-        const tk = prompt('请输入 WebUI token：');
-        if (tk && tk.trim()) { localStorage.setItem('webui_token', tk.trim()); continue; }
+        if (!document.getElementById('tokenModal').classList.contains('open')) openToken();
+        throw new Error('需要 WebUI token');
       }
       const j = await r.json();
       if (!j.ok) throw new Error(j.message || ('HTTP ' + r.status));
       return j;
-    } catch(e){ toast('请求失败: ' + e.message); throw e; }
+    } catch(e){
+      if (!document.getElementById('tokenModal').classList.contains('open')) toast('请求失败: ' + e.message);
+      throw e;
+    }
   }
 }
-function setToken(){
-  const cur = localStorage.getItem('webui_token') || '';
-  const v = prompt('设置 WebUI token（留空清除，token 在服务器上用 errorbackend webui-token 查看）：', cur);
-  if (v === null) return;
-  if (v.trim()) localStorage.setItem('webui_token', v.trim());
+function openToken(){
+  const m = document.getElementById('tokenModal');
+  m.classList.add('open');
+  document.getElementById('tokLocal').value = localStorage.getItem('webui_token') || '';
+  document.getElementById('tokNew').value = '';
+  api('/api/webui-token').then(j => {
+    document.getElementById('tokServer').value = j.token || '';
+  }).catch(() => {
+    document.getElementById('tokServer').value = '(未授权，请先输入正确 token 并「保存到浏览器」)';
+  });
+}
+function closeToken(){ document.getElementById('tokenModal').classList.remove('open'); }
+function genToken(){
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  document.getElementById('tokNew').value = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+function clearLocalToken(){
+  localStorage.removeItem('webui_token');
+  document.getElementById('tokLocal').value = '';
+  toast('已清除浏览器 token');
+}
+function saveLocalToken(){
+  const v = document.getElementById('tokLocal').value.trim();
+  if (v) localStorage.setItem('webui_token', v);
   else localStorage.removeItem('webui_token');
+  closeToken();
+  toast('浏览器 token 已保存');
+  refresh();
+}
+async function saveServerToken(){
+  const v = document.getElementById('tokNew').value.trim();
+  if (!v) { toast('请输入新 token，或点击 🎲 随机生成'); return; }
+  const j = await api('/api/webui-token', 'POST', JSON.stringify({ token: v }));
+  localStorage.setItem('webui_token', j.token);
+  closeToken();
+  toast('WebUI token 已更新并立即生效');
   refresh();
 }
 function applyTheme(){
@@ -497,7 +568,7 @@ async function loadLog(){
   pre.textContent = j.log || '(暂无日志)';
   pre.scrollTop = pre.scrollHeight;
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape'){ closeLog(); closeAlert(); closeConfig(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape'){ closeLog(); closeAlert(); closeConfig(); closeToken(); } });
 applyTheme();
 refresh();
 setInterval(refresh, 1000);
@@ -506,9 +577,10 @@ setInterval(refresh, 1000);
 </html>"""
 
 
-def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: int = 8911, open_browser: bool = True) -> None:
+def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: int = None, open_browser: bool = True) -> None:
     """启动 Web 管理界面（阻塞，Ctrl+C 退出）"""
     host = host or effective_webui_host()
+    port = int(port) if port else effective_webui_port()
     token = effective_webui_token()
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), config.get("log_dir", DEFAULT_LOG_DIR))
     by_name = {b.name: b for b in backends}
@@ -627,6 +699,9 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 except OSError:
                     self._err("not found", 404)
                 return
+            if self.path == "/api/webui-token":
+                self._json({"ok": True, "token": self.webui_token})
+                return
             if self.path == "/api/backends":
                 rows = []
                 for b in backends:
@@ -699,6 +774,20 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 return
             path = self.path
             try:
+                if path == "/api/webui-token":
+                    body = self._read_json()
+                    if body.get("reset"):
+                        reset_webui_token()
+                        token = effective_webui_token()
+                    else:
+                        token = str(body.get("token", "") or "").strip()
+                        if not token:
+                            self._err("token 不能为空", 400)
+                            return
+                        save_webui_token(token)
+                    Handler.webui_token = token  # 立即生效，无需重启
+                    self._json({"ok": True, "token": token})
+                    return
                 if path == "/api/start-all":
                     targets = [b for b in backends if deps_ready(b)]
                     skipped = [b.name for b in backends if not deps_ready(b)]

@@ -6,13 +6,15 @@
 
 - 框架搭建：launcher / WebUI / CLI 管理机制（`errorbackend` 命令、`ERROR_BACKEND_*` 环境变量、systemd 服务 `error-backends-webui`）
 - WebUI 空态提示：未收录后端时显示占位说明
-- 默认 WebUI 端口改为 8911，避开其他后端生态常用端口（README「端口约定」）
+- WebUI 端口改为首次运行随机生成五位数（10000-65535，避开已收录后端端口），不再固定端口，避免与本机其他服务冲突
 - 收录首个后端 `ocr`（OCR 图片文字识别，Node + tesseract.js，默认端口 18699，与海豹插件默认配置一致），接入 token 鉴权与 `ERROR_BACKEND_*` 环境变量
 - 自动开浏览器仅限 Windows；Linux/macOS 需显式设置 `BROWSER` 且存在图形环境才尝试（SSH -X 带 DISPLAY 也不会再误触发 xdg-open 报错）
 - WebUI 默认监听 0.0.0.0，首次运行自动生成访问 token（`webui-token` 查看/修改、`webui-host` 改监听地址，改后自动重启）
 - 新增 `errorbackend webui-host` / `webui-token` 命令；launcher 启动后台 WebUI 后即退出，不占用终端
 - launcher 每次启动自动安装/刷新 `errorbackend` 命令行（幂等，Windows 广播 PATH 变更、Linux 写入 shell 配置且不重复追加）
 - WebUI 启动自愈：检测到旧进程监听配置与当前不一致（host/port）时自动重启；后台子进程启动即崩溃时打印最近日志，避免“端口被旧进程占用”静默失败
+- 文档不再提及任何其他项目/生态的端口号，端口避让改为通用约定
+- WebUI 页面右上角新增「🔑 Token」管理弹窗：可查看/修改/随机生成 WebUI token（立即生效），替代原浏览器 prompt 弹框
 
 ## 0.1.0 - 2026-08-08
 
