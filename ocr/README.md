@@ -1,126 +1,49 @@
-# OCR 后端（Node.js + tesseract.js）
+# ocr 后端
 
-已收录进 [error-backends](../../README.md)（错误后端），默认端口 **18699**（与海豹插件默认配置一致，无需改插件地址）。源码来自 `sealdice-OCR-plugin` 项目的后端部分（已迁入本仓库），仅做了 launcher 契约适配（`ERROR_BACKEND_*` 环境变量与 token 鉴权）。
+OCR 图片文字识别后端，供海豹插件 `sealdice-OCR-plugin` 调用，也暴露标准 HTTP API
+供其他程序使用。
 
-## 启动
+## 引擎
 
-通过错误后端 WebUI / `errorbackend` 命令启动即可（自动 `npm install`）：
+- 推理框架：**ncnn**（CPU，无 GPU 依赖，适合 2 核 2G 小服务器）
+- 检测模型：**PP-OCRv6 tiny_det**（语言无关，约 1.9MB）
+- 识别模型：**PP-OCRv6 small_rec**（多语词表 18708 字符，覆盖中文 / 英文 / 日语，
+  约 21MB）
+- 说明：PP-OCRv6 的 tiny_rec 词表不含日文假名，无法识别日语；因此识别用
+  small_rec（tiny 档仅用于检测），在精度与 2G 内存之间取平衡。
 
-```bash
-errorbackend setup ocr      # 安装依赖
-errorbackend start ocr      # 启动
-```
-
-首次启动后，可先预下载语言包（可选）：不预下载也没关系，首次识别时后端会自动从
-`OCR_LANG_MIRROR` 下载缺失的 `.traineddata.gz` 到 `lang-data/`。
-
-```bash
-cd ocr && npm run setup-langs   # 预下载 eng,chi_sim 到 lang-data/
-```
-
-独立运行（绕过 launcher）：
-
-```bash
-npm install
-npm start             # 默认 http://127.0.0.1:18699
-```
-
-启动后先访问 `http://127.0.0.1:18699/health` 确认服务正常。
-
-## 环境变量
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `ERROR_BACKEND_PORT` | `18699` | launcher 注入的监听端口（优先于 `PORT`） |
-| `ERROR_BACKEND_HOST` | `0.0.0.0` | launcher 注入的监听地址（优先于 `HOST`） |
-| `ERROR_BACKEND_TOKEN` | 空 | launcher 注入的访问 token；非空时校验 `Authorization: Bearer <token>` 或 `X-Token: <token>` |
-| `PORT` / `HOST` | `18699` / `127.0.0.1` | 独立运行时使用的回退变量 |
-| `OCR_DEFAULT_LANG` | `chi_sim+eng` | 默认识别语言，多个用 `+` |
-| `OCR_LANG_DIR` | `./lang-data` | 语言包目录 |
-| `OCR_CACHE_DIR` | `./cache` | 编译缓存目录 |
-| `OCR_DEBUG` | `0` | `1` 时输出 tesseract.js 阶段日志 |
-| `MAX_BODY_MB` | `12` | JSON 请求体上限（base64 图片） |
-
-`setup-langs.js` 额外支持：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `OCR_LANGS` | `eng,chi_sim` | 逗号分隔的预下载语言列表 |
-| `OCR_LANG_MIRROR` | `https://tessdata.projectnaptha.com/4.0.0` | 语言包镜像 |
+模型文件首次启动时自动从镜像
+`https://mirrors.sdu.edu.cn/ncnn_modelzoo/liteocr/` 下载到 `cache/models/`
+（已 gitignore，不进仓库 / 发布包）。
 
 ## API
 
-### GET /health
+- `GET /health`：健康检查，返回引擎 / 已加载语言 / 队列任务数等
+- `POST /api/ocr`：`{url 或 imageUrl, base64, mime, lang}`（与旧版一致）
+- `POST /api/ocr/url`：`{url, lang}`
+- `POST /api/ocr/base64`：`{base64, mime, lang}`
+
+响应：
 
 ```json
 {
   "ok": true,
-  "engine": "tesseract.js",
-  "workerReady": true,
-  "workerLang": "chi_sim+eng",
-  "pendingJobs": 0,
-  "totalJobs": 3,
-  "defaultLang": "chi_sim+eng",
-  "langMirror": "https://tessdata.projectnaptha.com/4.0.0",
-  "langDir": "...",
-  "cacheDir": "..."
+  "text": "识别出的文字，多行用 \\n 连接",
+  "confidence": 98.7,
+  "lang": "zh+en+ja",
+  "durationMs": 123,
+  "engine": "PP-OCRv6 (ncnn)",
+  "model": "tiny_det + small_rec"
 }
 ```
 
-### POST /api/ocr
+鉴权：launcher 注入 `ERROR_BACKEND_TOKEN` 时，请求头需带
+`Authorization: Bearer <token>` 或 `X-Token: <token>`。
 
-通用入口，二选一提供 `url` 或 `base64`：
-
-```json
-{
-  "url": "https://example.com/a.png",
-  "lang": "chi_sim+eng",
-  "psm": 6,
-  "whitelist": "0123456789"
-}
-```
-
-`url` 支持 `http(s)://` 链接、`file://` 协议、本机绝对路径（Windows 或 Unix）。
-`psm` 为 Tesseract 页面分割模式；`whitelist` 为字符白名单。
-
-成功响应：
-
-```json
-{
-  "ok": true,
-  "text": "识别出的文字",
-  "confidence": 94,
-  "lang": "chi_sim+eng",
-  "durationMs": 132
-}
-```
-
-失败响应（HTTP 400/500）：
-
-```json
-{ "ok": false, "error": "错误原因" }
-```
-
-### POST /api/ocr/url
-
-只接受 URL（含本地路径）：
+## 本地运行
 
 ```bash
-curl -X POST http://127.0.0.1:18699/api/ocr/url \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/a.png","lang":"chi_sim+eng"}'
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt   # Windows: .venv\Scripts\pip
+ERROR_BACKEND_PORT=18699 python server.py
 ```
-
-### POST /api/ocr/base64
-
-```bash
-curl -X POST http://127.0.0.1:18699/api/ocr/base64 \
-  -H "Content-Type: application/json" \
-  -d '{"base64":"<图片base64>","mime":"image/png","lang":"chi_sim+eng"}'
-```
-
-## 说明
-
-- OCR 任务串行执行（单 worker），并发请求会排队，`/health` 的 `pendingJobs` 反映队列长度。
-- 语言包首次加载后会解压缓存到 `cache/`，之后请求不再重复下载；`lang-data/` 与 `cache/` 均为运行时数据，不入库、不打进发布包。
-- 后端会按请求抓取任意 URL，属于 SSRF 面：默认监听 `0.0.0.0`，若非必要请通过「⚙ 配置」把监听 IP 改为 `127.0.0.1` 或设置访问 token，不要直接暴露到公网。

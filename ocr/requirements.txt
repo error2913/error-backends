@@ -1,0 +1,5 @@
+flask>=2.2
+ncnn>=1.0.20250101
+opencv-python-headless>=4.8
+numpy>=1.24
+pyclipper>=1.3

@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- ocr 后端引擎更换：tesseract.js → **PP-OCRv6 + ncnn**（tiny_det + small_rec，
+  中英日多语），后端由 Node 改为 Python（Flask + ncnn + OpenCV + pyclipper），
+  API 契约与端口（18699）保持不变；模型首次启动自动下载到 `ocr/cache/models/`
 - 框架搭建：launcher / WebUI / CLI 管理机制（`errorbackend` 命令、`ERROR_BACKEND_*` 环境变量、systemd 服务 `error-backends-webui`）
 - WebUI 空态提示：未收录后端时显示占位说明
 - WebUI 端口改为首次运行随机生成五位数（10000-65535，避开已收录后端端口），不再固定端口，避免与本机其他服务冲突
