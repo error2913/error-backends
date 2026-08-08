@@ -26,7 +26,7 @@
 git clone https://github.com/error2913/error-backends.git && cd error-backends && python launcher.py
 ```
 
-一条命令搞定全部：首次运行自动安装所需依赖、生成 WebUI 访问 token，并在**后台启动**管理界面（不占用终端、无控制台窗口），命令执行完即退出。WebUI 默认监听 `0.0.0.0:8911`，启动输出里会打印访问地址与 token（无图形环境的 Linux 服务器不会尝试开浏览器）。停止后台 WebUI：`python launcher.py webui-stop` 或 `errorbackend webui-stop`。所有管理都在页面里完成：
+一条命令搞定全部：首次运行自动安装所需依赖、生成 WebUI 访问 token，并在**后台启动**管理界面（不占用终端、无控制台窗口），命令执行完即退出。WebUI 默认监听 `0.0.0.0:8911`，启动输出里会打印访问地址与 token（无图形环境的 Linux 服务器不会尝试开浏览器）。launcher 每次启动还会**自动安装/刷新 `errorbackend` 命令行**（幂等，Windows / Linux 均适配），新打开的终端即可使用。停止后台 WebUI：`python launcher.py webui-stop` 或 `errorbackend webui-stop`。所有管理都在页面里完成：
 
 - 首次启动某后端时，按钮显示「安装依赖」：点击后创建独立 venv / 执行 `npm install`，弹窗实时显示日志、按钮转圈，装完恢复为「启动」；之后再次启动不再安装，秒开
 - 有后端依赖未安装时，右上角出现「安装全部依赖」，可一键补齐
@@ -48,7 +48,7 @@ Windows 与 Linux 均支持，同一套代码无需改动：
 - 依赖按平台处理：Python 后端用独立 venv（Windows 取 `.venv\Scripts\python.exe`，Linux 取 `.venv/bin/python`），Node 后端 Windows 下自动走 `npm.cmd`
 - 后台守护：Windows 用 `DETACHED_PROCESS`（不弹控制台黑框），Linux 用 `start_new_session`
 - 内存读取：Windows 走系统 API，Linux 读 `/proc`；运行时长/自动拉起次数两平台一致
-- 安装 `errorbackend` 命令：Windows 生成 `errorbackend.cmd`，Linux 生成 shell 脚本并写入 shell 配置（`.bashrc` / `.zshrc` / `.profile`）
+- 安装 `errorbackend` 命令：Windows 生成 `errorbackend.cmd`，Linux 生成 shell 脚本并写入 shell 配置（`.bashrc` / `.zshrc` / `.profile`）；launcher 每次启动自动安装/刷新，无需手动执行，手动安装仍可用 `python install_cli.py`
 
 ## Linux 系统服务
 
@@ -146,7 +146,7 @@ WebUI 自身同样有访问 token（首次运行自动生成）：`errorbackend 
 
 ## 命令行（errorbackend）
 
-安装 `errorbackend` 命令（写入用户 PATH，重新打开终端后即可在任意目录使用）：
+`errorbackend` 命令由 launcher 启动时自动安装（写入用户 PATH，Windows 会广播环境变更、Linux 写入 shell 配置；新打开的终端即可使用）。也可以手动安装：
 
 ```bash
 python install_cli.py

@@ -11,6 +11,7 @@
 - 无图形环境的 Linux 服务器启动 WebUI 时不再尝试打开浏览器（避免 xdg-open 报错），仅打印访问地址
 - WebUI 默认监听 0.0.0.0，首次运行自动生成访问 token（`webui-token` 查看/修改、`webui-host` 改监听地址，改后自动重启）
 - 新增 `errorbackend webui-host` / `webui-token` 命令；launcher 启动后台 WebUI 后即退出，不占用终端
+- launcher 每次启动自动安装/刷新 `errorbackend` 命令行（幂等，Windows 广播 PATH 变更、Linux 写入 shell 配置且不重复追加）
 
 ## 0.1.0 - 2026-08-08
 

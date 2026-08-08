@@ -28,7 +28,7 @@ errorbackend help                      # 查看所有命令
 | `launcher.py` | 核心入口：后端发现/启停/依赖安装/运行时配置/WebUI 启停/更新/打包/systemd 服务 |
 | `webui.py` | Web 管理界面：内嵌 HTML/CSS/JS（`PAGE` 常量）+ 标准库 HTTP 服务 |
 | `errorbackend.py` | 命令行工具（复用 launcher 逻辑），彩色 help |
-| `install_cli.py` | 安装 `errorbackend` 到 PATH（Windows `~/.errorbackend/bin/errorbackend.cmd` / Linux shell 脚本） |
+| `install_cli.py` | 安装 `errorbackend` 到 PATH（Windows `~/.errorbackend/bin/errorbackend.cmd` / Linux shell 脚本）；launcher 每次启动自动调用 `install()`（幂等，不重复写 PATH） |
 | `backends/*/backend.json` | 后端清单：`name` / `type`(python\|node) / `entry` / `deps` / `port` / `description`（目录在仓库根目录，当前收录 `ocr`） |
 | `CHANGELOG.md` | 更新日志：`## <版本号>` 段落，release 与更新弹窗都从这里取 |
 | `VERSION` | 当前版本号（release 时由 tag 写入） |
@@ -45,6 +45,9 @@ errorbackend help                      # 查看所有命令
 
 ### 一键启动（`python launcher.py`）
 `ensure_webui_deps()`（无 webui-requirements.txt 时为空操作）→ `start_webui_background()`：检测 pid 文件避免重复启动；首次运行自动生成访问 token（`effective_webui_token()`，secret 保存于 `.runtime.json` 的 `webui.token`）；detach 子进程（Windows `DETACHED_PROCESS | CREATE_NO_WINDOW`，Linux `start_new_session`）；打印访问地址与 token，仅在有图形环境时（Windows / Linux 的 DISPLAY、WAYLAND_DISPLAY）自动开浏览器，无头 Linux 服务器不调用 webbrowser.open；命令执行完即退出，WebUI 留在后台。
+
+### CLI 自动安装（每次启动 launcher 都会执行）
+`main()` 最先调用 `ensure_cli_installed()` → `install_cli.install()`：写 shim（Windows `.cmd` / Linux shell 脚本）→ 加入 PATH（Windows 注册表 + `WM_SETTINGCHANGE` 广播刷新；Linux 写入 `.bashrc`/`.zshrc`/`.profile`，已包含则跳过，避免重复追加）。改 install_cli 逻辑后，`launcher.py` 与 `errorbackend.py` 两侧入口都要保持一致。
 
 ### 后端启动（`Supervisor.spawn`）
 按需安装依赖（首次）→ Linux 下 node 后端自动检测/补齐 Puppeteer Chromium 系统库（`ldd` 找 missing，Debian/Ubuntu 用 `apt-get` 自动装，映射见 `_PUPPETEER_LIB_PACKAGES`）→ 注入环境变量 `ERROR_BACKEND_PORT / _HOST / _TOKEN`（值来自 `.runtime.json`）→ 子进程日志重定向到 `logs/<name>.log`，`CREATE_NO_WINDOW`。`_monitor` 线程负责异常退出后按退避时间自动拉起；手动停止写入 `stopped` 标记则不再拉起。

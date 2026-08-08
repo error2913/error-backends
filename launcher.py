@@ -5,7 +5,8 @@
 
 直接运行本脚本：自动检查/安装 WebUI 自身依赖，然后启动 Web 管理界面
 （默认监听 0.0.0.0:8911，首次运行自动生成访问 token），后端安装、启停、
-端口管理都在页面里完成。运行本脚本启动后台 WebUI 后即退出，不占用终端。
+端口管理都在页面里完成。每次启动自动安装/刷新 errorbackend 命令行（幂等），
+运行本脚本启动后台 WebUI 后即退出，不占用终端。
 """
 
 import argparse
@@ -1092,6 +1093,22 @@ def package_backends() -> list:
     return [zip_out, tar_out]
 
 
+def ensure_cli_installed() -> None:
+    """launcher 启动时自动安装/刷新 errorbackend 命令（幂等，Windows/Linux 均适配）"""
+    try:
+        import install_cli
+
+        bin_dir = install_cli.install()
+        exe = "errorbackend.cmd" if os.name == "nt" else "errorbackend"
+        print(f"[launcher] errorbackend 命令已就绪: {os.path.join(bin_dir, exe)}")
+        if os.name == "nt":
+            print("[launcher] 新打开的终端即可使用 errorbackend（当前终端请重新打开）")
+        else:
+            print("[launcher] 新打开的终端即可使用 errorbackend（当前终端可 source ~/.bashrc 立即生效）")
+    except Exception as e:  # noqa: BLE001
+        print(f"[launcher] errorbackend 自动安装失败（可手动执行 python install_cli.py）: {e}", file=sys.stderr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="launcher",
@@ -1126,6 +1143,8 @@ def main() -> None:
     sub.add_parser("service-install", help="[Linux] 注册 systemd 服务：开机自启 + 自动拉起 WebUI")
     sub.add_parser("service-uninstall", help="[Linux] 移除 systemd 服务")
     args = parser.parse_args()
+
+    ensure_cli_installed()
 
     config = load_config()
     backends = discover_backends()
