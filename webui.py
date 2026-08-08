@@ -518,13 +518,12 @@ async function allAct(act){
 }
 async function updateNow(){
   try {
-    const r = await fetch('/api/update', {method: 'POST'});
-    const j = await r.json();
+    const j = await api('/api/update', 'POST');
     if (!j.ok){ showAlert('更新失败：\\n\\n' + (j.output || j.message || '')); return; }
     if (!j.updated){ showAlert('没有可以更新的'); return; }
     showAlert('更新完成：\\n\\n' + (j.changelog || j.output || '已拉取更新'));
   } catch(e){
-    showAlert('更新失败：' + e.message);
+    if (!(e && e.message === '需要 WebUI token')) showAlert('更新失败：' + e.message);
   }
 }
 function showAlert(msg){

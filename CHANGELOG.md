@@ -20,6 +20,7 @@
 - WebUI 页面右上角新增「🔑 Token」管理弹窗：可查看/修改/随机生成 WebUI token（立即生效），替代原浏览器 prompt 弹框
 - WebUI 改为 token 登录页：打开只显示 token 输入框，登录后浏览器记住一年；Token 弹窗简化为直接输入新 token 保存生效
 - WebUI 右上角新增「🔄 重启 WebUI」按钮（等价 `errorbackend webui-restart`）：重启后重新加载后端清单，新增/修改后端或代码更新后无需手动重启进程
+- 修复「⬆ 更新」按钮未携带 WebUI token 导致 401（unauthorized）的问题，改用统一 api() 请求
 
 ## 0.1.0 - 2026-08-08
 
