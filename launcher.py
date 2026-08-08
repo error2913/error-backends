@@ -772,10 +772,13 @@ def launch_webui(backends, config, supervisor, host: str = None, port: int = Non
 
 
 def _can_open_browser() -> bool:
-    """自动打开浏览器是否可行：Windows 桌面直接开；Linux/macOS 需有图形环境（DISPLAY / WAYLAND_DISPLAY）"""
+    """自动打开浏览器是否可行：Windows 桌面直接开；Linux/macOS 需显式设置 $BROWSER 且有图形环境
+    （SSH -X 会把 DISPLAY 带过来，但服务器通常没有浏览器，因此默认不自动开）"""
     if os.name == "nt":
         return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
+    return bool(os.environ.get("BROWSER"))
 
 
 def start_webui_background(host: str = None, port: int = None, open_browser: bool = True) -> int:

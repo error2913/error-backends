@@ -23,6 +23,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from launcher import (
+    _can_open_browser,
     DEFAULT_LOG_DIR,
     Supervisor,
     backend_config,
@@ -832,7 +833,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
     url = f"http://127.0.0.1:{port}" if host in ("0.0.0.0", "::") else f"http://{host}:{port}"
     print(f"[launcher] WebUI 已启动: {url}（Ctrl+C 退出）")
     print(f"[launcher] WebUI 访问 token: {token}（可用 errorbackend webui-token 修改）")
-    if open_browser:
+    if open_browser and _can_open_browser():
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()

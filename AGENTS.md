@@ -44,7 +44,7 @@ errorbackend help                      # 查看所有命令
 ## 关键流程
 
 ### 一键启动（`python launcher.py`）
-`ensure_webui_deps()`（无 webui-requirements.txt 时为空操作）→ `start_webui_background()`：检测 pid 文件避免重复启动；首次运行自动生成访问 token（`effective_webui_token()`，secret 保存于 `.runtime.json` 的 `webui.token`）；detach 子进程（Windows `DETACHED_PROCESS | CREATE_NO_WINDOW`，Linux `start_new_session`）；打印访问地址与 token，仅在有图形环境时（Windows / Linux 的 DISPLAY、WAYLAND_DISPLAY）自动开浏览器，无头 Linux 服务器不调用 webbrowser.open；命令执行完即退出，WebUI 留在后台。
+`ensure_webui_deps()`（无 webui-requirements.txt 时为空操作）→ `start_webui_background()`：检测 pid 文件避免重复启动；首次运行自动生成访问 token（`effective_webui_token()`，secret 保存于 `.runtime.json` 的 `webui.token`）；detach 子进程（Windows `DETACHED_PROCESS | CREATE_NO_WINDOW`，Linux `start_new_session`）；打印访问地址与 token；自动开浏览器仅限 Windows，Linux/macOS 必须显式设置 `$BROWSER` 且存在 DISPLAY/WAYLAND_DISPLAY 才尝试（SSH -X 不会误触发，避免 xdg-open 报错）；命令执行完即退出，WebUI 留在后台。
 
 ### CLI 自动安装（每次启动 launcher 都会执行）
 `main()` 最先调用 `ensure_cli_installed()` → `install_cli.install()`：写 shim（Windows `.cmd` / Linux shell 脚本）→ 加入 PATH（Windows 注册表 + `WM_SETTINGCHANGE` 广播刷新；Linux 写入 `.bashrc`/`.zshrc`/`.profile`，已包含则跳过，避免重复追加）。改 install_cli 逻辑后，`launcher.py` 与 `errorbackend.py` 两侧入口都要保持一致。
