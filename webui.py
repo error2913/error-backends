@@ -458,6 +458,7 @@ async function refresh(){
             : b.deps_ready
               ? `<button class="primary" onclick="run('${b.name}','start')">启动</button>`
               : `<button class="primary" onclick="setupNow('${b.name}')">安装依赖</button>`}
+        ${b.running && b.deps_ready ? `<button onclick="restartBackend('${b.name}')">重启</button>` : ''}
         <button onclick="showLog('${b.name}')">日志</button>
         ${b.deps_ready
           ? deleting.has(b.name)
@@ -515,6 +516,11 @@ async function pollInstall(name){
   }
 }
 async function run(name, act){ await api('/api/' + act + '/' + name, 'POST'); toast(act==='start' ? '已启动：' + name : '已停止：' + name); refresh(); }
+async function restartBackend(name){
+  await api('/api/restart/' + name, 'POST');
+  toast('已重启：' + name);
+  refresh();
+}
 async function allAct(act){
   const j = await api('/api/' + act + '-all', 'POST');
   if ((act === 'start' || act === 'restart') && j.started && j.started.length === 0 && j.skipped && j.skipped.length){
@@ -1003,6 +1009,15 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                     if action == "stop":
                         supervisor.stop([backend])
                         self._json({"ok": True})
+                        return
+                    if action == "restart":
+                        supervisor.stop([backend])
+                        if name in supervisor.state.get("stopped", []):
+                            supervisor.state["stopped"].remove(name)
+                            supervisor._save_state()
+                        time.sleep(0.5)
+                        supervisor.start([backend])
+                        self._json({"ok": True, "message": "restarted"})
                         return
                 self._err("not found", 404)
             except Exception as e:  # noqa: BLE001
