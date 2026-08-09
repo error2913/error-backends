@@ -39,7 +39,6 @@ from launcher import (
     load_registry,
     load_runtime,
     process_memory,
-    remove_backend_deps,
     remove_backend_dir,
     reset_webui_token,
     save_backend_config,
@@ -491,35 +490,14 @@ async function refresh(){
 function renderInstallAll(list){
   const area = document.getElementById('installAllArea');
   if (!area) return;
-  const missing = list.filter(b => !b.deps_ready && !b.running).length;
+  const missing = list.filter(b => !b.installed).length;
   if (allInstalling){
     area.innerHTML = `<button class="primary loading" disabled><span class="spin"></span>安装中 ${allDone}/${allTargets.length}</button>`;
   } else if (missing > 0){
-    area.innerHTML = `<button class="primary" onclick="setupAll()">安装全部依赖 (${missing})</button>`;
+    area.innerHTML = `<button class="primary" onclick="installAllNow()">安装全部 (${missing})</button>`;
   } else {
     area.innerHTML = '';
   }
-}
-async function setupNow(name){
-  installing.add(name);
-  refresh();
-  showInstallLog(name);
-  try {
-    await api('/api/setup/' + name, 'POST');
-    await pollInstall(name);
-  } catch(e){}
-  installing.delete(name);
-  refresh();
-}
-async function delDeps(name){
-  deleting.add(name);
-  refresh();
-  try {
-    await api('/api/deps-delete/' + name, 'POST');
-    toast('已删除依赖：' + name);
-  } catch(e){}
-  deleting.delete(name);
-  refresh();
 }
 async function pollInstall(name){
   while (true){
@@ -586,7 +564,7 @@ async function installNow(name){
 async function allAct(act){
   const j = await api('/api/' + act + '-all', 'POST');
   if ((act === 'start' || act === 'restart') && j.started && j.started.length === 0 && j.skipped && j.skipped.length){
-    showAlert('后端依赖均未安装，已全部跳过。\\n可先点右上角「安装全部依赖」，装完后再启动。');
+    showAlert('后端均未安装，已全部跳过。\\n可先点右上角「安装全部」，装完后再启动。');
   } else {
     toast(act==='start' ? '已启动全部' : act==='restart' ? '已重启全部' : '已停止全部');
   }
@@ -644,23 +622,23 @@ function fmtChangelog(text){
   return html;
 }
 function closeAlert(){ document.getElementById('alertModal').classList.remove('open'); }
-async function setupAll(){
+async function installAllNow(){
   const list = await api('/api/backends');
-  allTargets = list.backends.filter(b => !b.deps_ready && !b.running).map(b => b.name);
+  allTargets = list.backends.filter(b => !b.installed).map(b => b.name);
   allDone = 0;
   if (!allTargets.length) return;
   allInstalling = true;
-  showInstallLog('全部依赖');
+  showInstallLog('全部');
   refresh();
   try {
     for (const name of allTargets){
-      document.getElementById('logTitle').textContent = '安装全部依赖 (' + allDone + '/' + allTargets.length + ')：' + name;
+      document.getElementById('logTitle').textContent = '安装全部 (' + allDone + '/' + allTargets.length + ')：' + name;
       document.getElementById('logBody').textContent = '(等待安装日志...)';
-      await api('/api/setup/' + name, 'POST');
+      await api('/api/install/' + name, 'POST');
       await pollInstall(name);
       allDone++;
     }
-    toast('全部依赖安装完成');
+    toast('全部安装完成');
   } catch(e){}
   allInstalling = false;
   refresh();
@@ -716,7 +694,7 @@ async function saveConfig(){
 }
 function showInstallLog(name){
   current = name; currentType = 'setup';
-  document.getElementById('logTitle').textContent = '安装依赖：' + name;
+  document.getElementById('logTitle').textContent = '操作：' + name;
   document.getElementById('logBody').textContent = '(等待安装日志...)';
   document.getElementById('modal').classList.add('open');
 }
@@ -1173,17 +1151,6 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                     backend = by_name.get(name)
                     if not backend:
                         self._err(f"未知后端: {name}", 404)
-                        return
-                    if action == "setup":
-                        start_setup(name)
-                        self._json({"ok": True, "message": "setup started"})
-                        return
-                    if action == "deps-delete":
-                        if supervisor.is_running(name):
-                            supervisor.stop([backend])
-                            time.sleep(1)
-                        remove_backend_deps(backend)
-                        self._json({"ok": True, "message": "deps removed"})
                         return
                     if action == "start":
                         if name in supervisor.state.get("stopped", []):

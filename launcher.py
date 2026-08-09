@@ -1448,9 +1448,6 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("list", help="列出后端与启用/运行状态")
-    setup_p = sub.add_parser("setup", help="安装依赖（幂等，python 后端装入独立 venv）")
-    setup_p.add_argument("names", nargs="*")
-    setup_p.add_argument("--all", action="store_true", help="安装全部后端")
     install_b_p = sub.add_parser("install-backend", help="安装后端：下载程序文件并安装依赖")
     install_b_p.add_argument("name")
     sub.add_parser("uninstall-backend", help="卸载后端：停止并删除程序与依赖").add_argument("name")
@@ -1505,15 +1502,6 @@ def main() -> None:
         for backend in backends:
             state = "运行中" if supervisor.is_running(backend.name) else "已停止"
             print(f"{backend.name:24s} port={effective_port(backend):<6d} [{state}] {backend.description}")
-        return
-
-    if args.command == "setup":
-        targets = backends if args.all else find(args.names) if args.names else []
-        if not targets:
-            print("[launcher] 请指定后端名称或使用 --all 安装全部")
-            return
-        for backend in targets:
-            setup_backend(backend)
         return
 
     if args.command == "install-backend":

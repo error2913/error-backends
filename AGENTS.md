@@ -38,7 +38,7 @@
 `launcher.discover_backends()` 只扫描 `backends/*/backend.json`（`PACKAGES_DIR`）。WebUI 的 `/api/backends` 会把注册表（`load_registry()`）里**未安装**的后端也并进来（`installed: false`），卡片显示「安装」。
 
 ### 安装（`install_backend` / WebUI「安装」/ `install-backend` 命令）
-注册表条目 → `download_backend_files()` 按 `files` 清单从 `source`（raw.githubusercontent）下载到 `backends/<name>/`，失败回退本地同路径文件 → 写 `backend.json`（缺省时）→ `setup_backend()` 装依赖。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`）。
+注册表条目 → 从商店 `backends/<name>` 按 `files` 清单复制到 `installed/<name>/`（商店缺文件时从 `source` 远端下载）→ 写 `backend.json`（缺省时）→ `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
 
 ### 卸载（`remove_backend_dir` / WebUI「卸载」/ `uninstall-backend` 命令）
 停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**git 商店 `backends/<name>` 永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
@@ -65,7 +65,7 @@
 - `POST /api/update-backend/<name>`：单独更新后端（拉代码 + 检查依赖 + 重启）
 - `POST /api/update`：整体更新（成功后重启全部后端）
 - `GET /api/webui-token` / `POST /api/webui-token`（`{token}` 或 `{reset:true}`）、`POST /api/webui-restart`
-- `GET /api/logs/<name>`、`GET /api/setup-log/<name>`、`POST /api/setup/<name>`（内部，勿在 UI 暴露手动按钮）
+- `GET /api/logs/<name>`、`GET /api/setup-log/<name>`（安装/卸载日志轮询）
 
 ## 开发约定
 
