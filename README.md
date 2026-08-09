@@ -2,7 +2,7 @@
 
 错误后端的配套后端管理框架：一个 launcher 统一管理若干 HTTP / MCP 后端服务，提供 WebUI 管理界面、命令行工具（`errorbackend`）、按需安装依赖与进程守护。
 
-当前已收录后端：`ocr`（OCR 图片文字识别）。每收录一个后端，在仓库根目录新建一个目录并放入 `backend.json` 即可被自动发现，无需改 launcher 代码。
+当前已收录后端：`ocr` / `redbag` / `run_shell` / `chart`。每收录一个后端，在仓库根目录新建一个目录并放入 `backend.json` 即可被自动发现，无需改 launcher 代码。
 
 ## 目录
 
@@ -70,6 +70,7 @@ python launcher.py service-uninstall    # 停止并移除服务
 | `ocr` | OCR 图片文字识别（tesseract.js） | 18699 | Node |
 | `redbag` | 红包图片生成（FastAPI） | 3000 | Python |
 | `run_shell` | Shell 命令执行并渲染输出为图片（仅 Linux） | 3011 | Python |
+| `chart` | 排行榜图表图片生成（FastAPI） | 3003 | Python |
 
 每收录一个后端，在仓库根目录新建一个目录并放入 `backend.json` 即可被自动发现（无需改 launcher 代码）；未收录任何后端时 WebUI 显示空态提示。
 
@@ -114,6 +115,15 @@ FastAPI 后端，执行 Shell 命令并把 stdout/stderr 渲染成图片返回 U
   - `GET /list_process?token=<token>`：列出进程
 - 依赖：`fastapi`、`Pillow`、`uvicorn`；字体（Sarasa Mono SC）随仓库提供
 - token：`ERROR_BACKEND_TOKEN` 非空时优先使用（也兼容请求头 `X-Token` / `Authorization: Bearer`）；未配置时回退到内置 `123456`
+
+### chart — 排行榜图表图片生成
+
+FastAPI 后端，按排行榜数据（QQ 昵称 + 头像 + 数值）生成竖排图表图片，返回临时图片 URL（约 120 秒后自动清理）。
+
+- 默认端口 3003（Python / FastAPI）
+- 接口：`POST /chart`，body `{title, data: [{uid, un, value}, ...]}`（`uid` 为 `qq123456` 形式），返回 `{image_url}`（图片在 `/temp_images/<file>.png`）
+- 依赖：`fastapi`、`Pillow`、`requests`、`uvicorn`
+- 已接入 `ERROR_BACKEND_PORT` / `ERROR_BACKEND_HOST` / `ERROR_BACKEND_TOKEN`（token 非空时校验请求头）
 
 ## 新增后端约定
 

@@ -4,7 +4,7 @@
 
 ## 项目是什么
 
-错误后端的配套后端管理仓库：一个 launcher 管理若干 HTTP/MCP 后端服务（当前已收录 `ocr` / `redbag` / `run_shell`），提供：
+错误后端的配套后端管理仓库：一个 launcher 管理若干 HTTP/MCP 后端服务（当前已收录 `ocr` / `redbag` / `run_shell` / `chart`），提供：
 
 - WebUI 管理界面（`webui.py`，纯 Python 标准库，无第三方依赖）
 - 命令行管理工具（`errorbackend`，类似 pm2）
@@ -29,7 +29,7 @@ errorbackend help                      # 查看所有命令
 | `webui.py` | Web 管理界面：内嵌 HTML/CSS/JS（`PAGE` 常量）+ 标准库 HTTP 服务 |
 | `errorbackend.py` | 命令行工具（复用 launcher 逻辑），彩色 help |
 | `install_cli.py` | 安装 `errorbackend` 到 PATH（Windows `~/.errorbackend/bin/errorbackend.cmd` / Linux shell 脚本）；launcher 每次启动自动调用 `install()`（幂等，不重复写 PATH） |
-| `backends/*/backend.json` | 后端清单：`name` / `type`(python\|node) / `entry` / `deps` / `port` / `description`（目录在仓库根目录，当前收录 `ocr` / `redbag` / `run_shell`） |
+| `backends/*/backend.json` | 后端清单：`name` / `type`(python\|node) / `entry` / `deps` / `port` / `description`（目录在仓库根目录，当前收录 `ocr` / `redbag` / `run_shell` / `chart`） |
 | `CHANGELOG.md` | 更新日志：`## <版本号>` 段落，release 与更新弹窗都从这里取 |
 | `VERSION` | 当前版本号（release 时由 tag 写入） |
 | `launcher.json` | 全局配置：`auto_restart`、`restart_backoff_seconds`、`log_dir` |
@@ -87,7 +87,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 - 运行时配置读写只通过 `launcher.backend_config()` / `save_backend_config()`，不要直接改 `.runtime.json` 结构。
 - WebUI 的端口/监听地址/访问 token 配置统一走 `launcher.configure_webui_*()`，`launcher.py` 与 `errorbackend.py` 都要有对应子命令（`webui-port` / `webui-host` / `webui-token`），改后自动重启 WebUI。
 - 新增「重启 WebUI」入口时三处同步：WebUI 页面按钮（`POST /api/webui-restart`）+ `launcher.py webui-restart` + `errorbackend.py webui-restart`。
-- 端口约定：WebUI 端口首次运行随机生成（10000-65535，避开已收录后端端口）；新增后端默认端口避开本机已有服务端口，也不与本项目已有后端重复（当前 `ocr` 18699 / `redbag` 3000 / `run_shell` 3011）。
+- 端口约定：WebUI 端口首次运行随机生成（10000-65535，避开已收录后端端口）；新增后端默认端口避开本机已有服务端口，也不与本项目已有后端重复（当前 `ocr` 18699 / `redbag` 3000 / `run_shell` 3011 / `chart` 3003）。
 - 命令行与 WebUI 共用同一套后端进程与状态（`logs/state.json`），改动两处入口都要同步（如新增子命令：`launcher.py` + `errorbackend.py` + README）。
 - 平台差异：Windows 与 Linux 行为保持一致；系统服务类命令在非 Linux 平台提示「仅支持 Linux」并不展示在 help（`errorbackend` 的 cmd_help 按 `os.name` 过滤）。
 - 更新日志：改动记录进 CHANGELOG.md（日常写在 `Unreleased`）。

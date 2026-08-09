@@ -2,7 +2,7 @@
   "name": "run_shell",
   "description": "执行 Shell 命令并将输出渲染为图片（仅 Linux）",
   "type": "python",
-  "entry": "run_shell后端/main.py",
-  "deps": "run_shell后端/requirements.txt",
+  "entry": "backend/main.py",
+  "deps": "backend/requirements.txt",
   "port": 3011
 }
