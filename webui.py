@@ -32,6 +32,7 @@ from launcher import (
     backend_custom_config,
     backend_config,
     deps_ready,
+    discover_backends,
     effective_webui_port,
     effective_webui_host,
     effective_webui_token,
@@ -463,9 +464,9 @@ async function refresh(){
         ${b.running && b.pid ? `<span class="chip idle">pid ${b.pid}</span>` : ''}
       </div>
       <div class="meta">
-        <span class="chip idle">⏱ ${b.running ? fmtUptime(b.uptime_secs) : '未运行'}</span>
-        <span class="chip idle">🔄 自动拉起 ${b.restarts} 次</span>
-        ${b.running && b.mem_mb != null ? `<span class="chip idle">💾 ${b.mem_mb}MB / ${b.mem_pct}%</span>` : ''}
+        ${b.installed ? `<span class="chip idle">⏱ ${b.running ? fmtUptime(b.uptime_secs) : '未运行'}</span>` : ''}
+        ${b.installed ? `<span class="chip idle">🔄 自动拉起 ${b.restarts} 次</span>` : ''}
+        ${b.installed && b.running && b.mem_mb != null ? `<span class="chip idle">💾 ${b.mem_mb}MB / ${b.mem_pct}%</span>` : ''}
       </div>
       <div class="ops">
         ${!b.installed
@@ -478,7 +479,11 @@ async function refresh(){
         ${b.installed ? `<button onclick="openConfig('${b.name}')">配置</button>` : ''}
         ${b.installed && updSet.has(b.name) ? `<button class="primary" onclick="updateBackend('${b.name}')">⬆ 更新</button>` : ''}
         ${b.installed ? `<button onclick="showLog('${b.name}')">日志</button>` : ''}
-        ${b.installed ? `<button class="danger" onclick="uninstallBackend('${b.name}')">卸载</button>` : ''}
+        ${b.installed
+          ? deleting.has(b.name)
+            ? `<button class="danger loading" disabled><span class="spin"></span>卸载中</button><button onclick="showInstallLog('${b.name}')">日志</button>`
+            : `<button class="danger" onclick="uninstallBackend('${b.name}')">卸载</button>`
+          : ''}
       </div>
     </div>`).join('') : '<div class="empty">暂无已收录的后端 — 放入含 <code>backend.json</code> 的后端目录后会自动出现在这里</div>';
   renderInstallAll(list);
@@ -529,7 +534,15 @@ async function pollInstall(name){
     await new Promise(r => setTimeout(r, 1200));
   }
 }
-async function run(name, act){ await api('/api/' + act + '/' + name, 'POST'); toast(act==='start' ? '已启动：' + name : '已停止：' + name); refresh(); }
+async function run(name, act){
+  try {
+    await api('/api/' + act + '/' + name, 'POST');
+    toast(act==='start' ? '已启动：' + name : '已停止：' + name);
+  } catch(e){
+    if (!(e && e.message === '需要 WebUI token')) showAlert((act==='start' ? '启动' : '停止') + '失败：' + e.message);
+  }
+  refresh();
+}
 async function restartBackend(name){
   await api('/api/restart/' + name, 'POST');
   toast('已重启：' + name);
@@ -545,13 +558,18 @@ async function updateBackend(name){
   refresh();
 }
 async function uninstallBackend(name){
-  if (!confirm('确定卸载后端「' + name + '」吗？程序与依赖会一起删除（删除记录已 git 暂存，推送到远端后永久生效）。')) return;
+  if (!confirm('确定卸载后端「' + name + '」吗？会停止进程并删除已安装的程序与依赖（git 商店里的包不受影响）。')) return;
+  deleting.add(name);
+  refresh();
+  showInstallLog(name);
   try {
     await api('/api/uninstall/' + name, 'POST');
+    await pollInstall(name);
     toast('已卸载：' + name);
   } catch(e){
     if (!(e && e.message === '需要 WebUI token')) showAlert('卸载失败：' + e.message);
   }
+  deleting.delete(name);
   refresh();
 }
 async function installNow(name){
@@ -797,6 +815,10 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
         """后台安装后端：launcher.py install-backend <name>（下载程序 + 安装依赖）"""
         start_setup(name, words=("install-backend",))
 
+    def start_uninstall(name: str) -> None:
+        """后台卸载后端：launcher.py uninstall-backend <name>（停进程 + 删 installed/<name>）"""
+        start_setup(name, words=("uninstall-backend",))
+
     def _restart_webui() -> None:
         """响应返回后延迟触发：由独立进程先停旧 WebUI 再启动新 WebUI（重新加载后端清单）"""
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "launcher.py")
@@ -849,6 +871,9 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 return {}
 
         def do_GET(self):
+            nonlocal backends, by_name
+            backends = discover_backends()
+            by_name = {b.name: b for b in backends}
             if self.path not in ("/", "/icon.png", "/icon-256.png") and not self._authorized():
                 self._err("unauthorized", 401)
                 return
@@ -917,7 +942,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         "mem_mb": mem_mb,
                         "mem_pct": mem_pct,
                         "deps_ready": deps_ready(b),
-                        "installed": True,
+                        "installed": deps_ready(b),  # 程序 + 依赖都就绪才算已安装
                         "pid": info.get("pid"),
                     })
                 installed_names = {b.name for b in backends}
@@ -986,6 +1011,9 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
             self._err("not found", 404)
 
         def do_POST(self):
+            nonlocal backends, by_name
+            backends = discover_backends()
+            by_name = {b.name: b for b in backends}
             if not self._authorized():
                 self._err("unauthorized", 401)
                 return
@@ -1138,6 +1166,10 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 parts = path.strip("/").split("/")
                 if len(parts) == 3 and parts[0] == "api":
                     action, name = parts[1], parts[2]
+                    if action == "install":
+                        start_install(name)
+                        self._json({"ok": True, "message": "install started"})
+                        return
                     backend = by_name.get(name)
                     if not backend:
                         self._err(f"未知后端: {name}", 404)
@@ -1145,10 +1177,6 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                     if action == "setup":
                         start_setup(name)
                         self._json({"ok": True, "message": "setup started"})
-                        return
-                    if action == "install":
-                        start_install(name)
-                        self._json({"ok": True, "message": "install started"})
                         return
                     if action == "deps-delete":
                         if supervisor.is_running(name):
@@ -1202,11 +1230,8 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         })
                         return
                     if action == "uninstall":
-                        if supervisor.is_running(name):
-                            supervisor.stop([backend])
-                            time.sleep(1)
-                        remove_backend_dir(name)
-                        self._json({"ok": True, "message": "uninstalled"})
+                        start_uninstall(name)
+                        self._json({"ok": True, "message": "uninstall started"})
                         return
                 self._err("not found", 404)
             except Exception as e:  # noqa: BLE001

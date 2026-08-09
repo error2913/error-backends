@@ -2,7 +2,7 @@
 
 海豹插件配套的后端管理框架：一个 launcher 统一管理若干**独立分发**的 HTTP 后端服务，提供 WebUI 管理界面、命令行工具（`errorbackend`）、按需下载安装、进程守护与版本更新。
 
-后端程序独立分发：仓库只维护注册表索引（[backends.json](backends.json)），程序按需从远端下载到 `backends/<name>/`；依赖随**安装 / 卸载 / 更新**生命周期自动处理，不提供手动装/卸依赖的入口。
+后端程序独立分发：仓库维护注册表索引（[backends.json](backends.json)）与程序商店（`backends/<name>/`，git 保留永不删除）；程序按需从商店复制到运行目录 `installed/<name>/`（gitignore）；依赖随**安装 / 卸载 / 更新**生命周期自动处理，不提供手动装/卸依赖的入口。初始状态 `installed/` 为空，WebUI 只展示后端资料卡片与「安装」按钮。
 
 ## 快速开始
 
@@ -27,10 +27,10 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 
 ## 使用方式
 
-- **安装**：WebUI 卡片「安装」或 `errorbackend install-backend <name>`——按注册表下载程序文件并自动安装依赖，完成后可启动
+- **安装**：WebUI 卡片「安装」或 `errorbackend install-backend <name>`——从商店 `backends/<name>` 复制到 `installed/<name>` 并自动安装依赖（选择式下载，未选择的后端不出现在运行环境），完成后可启动
 - **启停 / 重启**：卡片按钮或 `errorbackend start / stop / restart <name>`
 - **更新**：右上角「⬆ 更新」拉取仓库代码并重启全部后端与 WebUI；卡片「⬆ 更新」单独更新该后端（重新下载 + 检查依赖 + 重启）；后台 60 秒检查一次远端版本，有新版时更新按钮出现小红点
-- **卸载**：卡片「卸载」或 `errorbackend uninstall-backend <name>`——停止并删除程序与依赖（删除已 git 暂存，推送远端后永久生效）
+- **卸载**：卡片「卸载」（卸载中转圈 + 日志）或 `errorbackend uninstall-backend <name>`——停止并删除 `installed/<name>`（程序 + 依赖），**git 商店里的包不受影响**
 
 依赖随以上操作自动管理，无手动「安装依赖 / 删除依赖」按钮。
 
@@ -63,7 +63,8 @@ webui.py               Web 管理界面（纯 Python 标准库）
 errorbackend.py        命令行管理工具
 install_cli.py         安装 errorbackend 命令到 PATH
 backends.json          后端注册表索引（名称/介绍/版本/下载源/文件清单）
-backends/<name>/       后端程序包（安装时按需下载到此目录）
+backends/<name>/       后端程序包商店（git 保留，永不删除）
+installed/<name>/      已安装后端运行目录（gitignore，安装时从商店复制，卸载即删）
 assets/                WebUI 图标
 ```
 

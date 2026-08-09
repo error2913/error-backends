@@ -6,8 +6,8 @@
 
 海豹插件配套的后端管理框架，采用**独立分发**模式：
 
-- 仓库只维护注册表索引 `backends.json`，不直接运行仓库内的后端
-- 后端程序按需下载到 `backends/<name>/`（安装时从远端拉取，远端不可用则回退本地副本）
+- 仓库维护注册表索引 `backends.json` 与程序商店 `backends/<name>/`（git 保留，永不删除）
+- 后端程序按需从商店复制到运行目录 `installed/<name>/`（gitignore）；商店缺文件时从远端拉取
 - 依赖随安装/卸载/更新生命周期自动管理，不提供手动装/卸依赖的入口
 - WebUI 管理界面（`webui.py`，纯标准库）+ 命令行工具（`errorbackend`）+ 进程守护 + 版本更新检查
 
@@ -41,7 +41,7 @@
 注册表条目 → `download_backend_files()` 按 `files` 清单从 `source`（raw.githubusercontent）下载到 `backends/<name>/`，失败回退本地同路径文件 → 写 `backend.json`（缺省时）→ `setup_backend()` 装依赖。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`）。
 
 ### 卸载（`remove_backend_dir` / WebUI「卸载」/ `uninstall-backend` 命令）
-停止后端 → `git rm -r -f --ignore-unmatch backends/<name>`（暂存删除记录）→ 删除整个目录（程序 + 依赖）。注意：同仓库分发下 `git pull` 会让已删除目录回来，需把删除提交并推送才永久生效。
+停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**git 商店 `backends/<name>` 永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
 
 ### 更新
 - 整体：「⬆ 更新」→ `update_project()`（git pull）→ 先停全部 → 逐后端 `setup_backend()` 同步依赖 → 再启动依赖就绪的后端 → WebUI 2 秒后自动重启
@@ -56,7 +56,7 @@
 
 除 `/`（登录页）与 `/icon*.png` 外，请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。
 
-- `GET /api/backends`：已安装 + 注册表未安装卡片数据，含 `updates` 版本检查结果
+- `GET /api/backends`：已安装（`installed/` 中程序 + 依赖就绪）+ 注册表未安装卡片数据，含 `updates` 版本检查结果
 - `GET|POST /api/config/<name>`、`POST /api/port/<name>[/reset]`：后端端口/token/host 配置
 - `GET /api/config/<name>` 额外返回 `options`（自定义配置值与默认值合并）与 `config_schema`（来自 `backend.json` 的 `config` 字段）；`POST` 接受 `options`，按 schema 校验并保存到 `.runtime.json` 的 `config/<name>.options`
 - `POST /api/install/<name>`：后台安装（轮询 `/api/setup-log/<name>`）

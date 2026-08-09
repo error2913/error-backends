@@ -30,6 +30,7 @@ from dataclasses import dataclass
 BACKENDS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BACKENDS_DIR  # launcher 位于仓库根目录
 PACKAGES_DIR = os.path.join(BACKENDS_DIR, "backends")  # 后端程序包目录（按需下载/卸载）
+INSTALLED_DIR = os.path.join(BACKENDS_DIR, "installed")  # 已安装后端运行目录（gitignore，卸载即删）
 CONFIG_FILE = os.path.join(BACKENDS_DIR, "launcher.json")
 MANIFEST_FILE = "backend.json"
 REGISTRY_FILE = "backends.json"  # 后端注册表（索引：名称/介绍/版本/下载源）
@@ -137,6 +138,7 @@ def effective_webui_port() -> int:
     port = rt.get("webui", {}).get("port")
     if not port:
         reserved = {b.port for b in discover_backends()}
+        reserved |= {int(item.get("port", 0)) for item in load_registry() if item.get("port")}
         while True:
             port = 10000 + secrets.randbelow(55536)  # 10000-65535
             if port not in reserved:
@@ -263,9 +265,9 @@ def configure_webui_token(value=None) -> str:
 
 def discover_backends() -> list:
     backends = []
-    os.makedirs(PACKAGES_DIR, exist_ok=True)
-    for entry in sorted(os.listdir(PACKAGES_DIR)):
-        manifest = os.path.join(PACKAGES_DIR, entry, MANIFEST_FILE)
+    os.makedirs(INSTALLED_DIR, exist_ok=True)
+    for entry in sorted(os.listdir(INSTALLED_DIR)):
+        manifest = os.path.join(INSTALLED_DIR, entry, MANIFEST_FILE)
         if not os.path.isfile(manifest):
             continue
         with open(manifest, encoding="utf-8") as f:
@@ -278,7 +280,7 @@ def discover_backends() -> list:
             deps=data.get("deps", ""),
             port=int(data.get("port", 0)),
             version=str(data.get("version", "") or ""),
-            dir=os.path.join(PACKAGES_DIR, entry),
+            dir=os.path.join(INSTALLED_DIR, entry),
         ))
     return backends
 
@@ -330,10 +332,26 @@ def ensure_venv(backend: Backend) -> str:
     if not current:
         print(f"[launcher] 跳过 {backend.name}: 缺少 {backend.deps}")
     else:
-        subprocess.check_call(
-            [py, "-m", "pip", "install", "-r", os.path.join(backend.dir, backend.deps)],
-            **_no_window_kwargs(),
-        )
+        for attempt in (1, 2):
+            try:
+                proc = subprocess.run(
+                    [py, "-m", "pip", "install", "-r", os.path.join(backend.dir, backend.deps)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=600,
+                    **_no_window_kwargs(),
+                )
+                if proc.returncode != 0:
+                    print(f"[launcher] pip 失败输出:\n{(proc.stdout or '')[-2000:]}\n{(proc.stderr or '')[-2000:]}")
+                    raise subprocess.CalledProcessError(proc.returncode, proc.args)
+                break
+            except subprocess.CalledProcessError:
+                if attempt == 2:
+                    raise
+                print(f"[launcher] pip 安装失败（网络抖动？），2 秒后重试一次...")
+                time.sleep(2)
     with open(marker, "w", encoding="utf-8") as f:
         f.write(current)
     return py
@@ -856,10 +874,25 @@ def download_backend_files(entry: dict, backend_dir: str) -> None:
 
 
 def install_backend(name: str) -> Backend:
-    """安装后端：下载程序文件（按需）→ 安装依赖；返回 Backend"""
+    """安装后端：从商店 backends/<name> 选择性复制到 installed/<name>（商店缺文件时从远端下载）→ 安装依赖；返回 Backend"""
     entry = registry_entry(name)
-    backend_dir = os.path.join(PACKAGES_DIR, name)
-    download_backend_files(entry, backend_dir)
+    backend_dir = os.path.join(INSTALLED_DIR, name)
+    source_dir = os.path.join(PACKAGES_DIR, name)
+    files = entry.get("files") or []
+    copied = 0
+    if os.path.isdir(source_dir):
+        for rel in files:
+            rel = rel.replace("\\", "/").lstrip("/")
+            if not rel or os.path.normpath(rel).startswith(".."):
+                continue
+            src = os.path.join(source_dir, *rel.split("/"))
+            dst = os.path.join(backend_dir, *rel.split("/"))
+            if os.path.isfile(src):
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                copied += 1
+    if copied < len(files):
+        download_backend_files(entry, backend_dir)
     manifest = os.path.join(backend_dir, MANIFEST_FILE)
     if not os.path.isfile(manifest):
         with open(manifest, "w", encoding="utf-8") as f:
@@ -875,29 +908,21 @@ def install_backend(name: str) -> Backend:
         dir=backend_dir,
     )
     print(f"[launcher] 安装后端 {name}，安装依赖...")
-    setup_backend(backend)
+    try:
+        setup_backend(backend)
+    except Exception:
+        shutil.rmtree(backend_dir, ignore_errors=True)  # 安装失败：清掉半成品，回到未安装状态
+        raise
     print(f"[launcher] 后端 {name} 安装完成")
     return backend
 
 
 def remove_backend_dir(name: str) -> None:
-    """删除整个后端目录（程序 + 依赖），并 git rm 暂存删除记录"""
-    real = os.path.realpath(os.path.join(PACKAGES_DIR, name))
-    root = os.path.realpath(PACKAGES_DIR)
+    """卸载：只删除 installed/<name>（程序 + 依赖），git 商店里的包不动"""
+    real = os.path.realpath(os.path.join(INSTALLED_DIR, name))
+    root = os.path.realpath(INSTALLED_DIR)
     if os.path.commonpath([root, real]) != root or os.path.basename(real) != name:
-        raise ValueError(f"拒绝删除非后端包目录: {real}")
-    rel = os.path.relpath(real, ROOT_DIR).replace(os.sep, "/")
-    try:
-        subprocess.run(
-            ["git", "rm", "-r", "-f", "--quiet", "--ignore-unmatch", rel],
-            cwd=ROOT_DIR,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            **_no_window_kwargs(),
-        )
-    except Exception:  # noqa: BLE001
-        pass
+        raise ValueError(f"拒绝删除非已安装后端目录: {real}")
     shutil.rmtree(real, ignore_errors=True)
 
 
