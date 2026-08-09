@@ -29,8 +29,10 @@ from dataclasses import dataclass
 
 BACKENDS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BACKENDS_DIR  # launcher 位于仓库根目录
+PACKAGES_DIR = os.path.join(BACKENDS_DIR, "backends")  # 后端程序包目录（按需下载/卸载）
 CONFIG_FILE = os.path.join(BACKENDS_DIR, "launcher.json")
 MANIFEST_FILE = "backend.json"
+REGISTRY_FILE = "backends.json"  # 后端注册表（索引：名称/介绍/版本/下载源）
 DEFAULT_LOG_DIR = "logs"
 RUNTIME_FILE = ".runtime.json"
 WEBUI_PID_FILE = os.path.join(ROOT_DIR, "logs", "webui.pid")
@@ -38,7 +40,7 @@ VENV_DIR_NAME = ".venv"
 DEPS_MARKER = ".deps_ready"
 
 # 打包时排除的目录/文件
-EXCLUDE_DIRS = {"logs", "node_modules", "__pycache__", ".venv", "venv", "dist", ".git", "lang-data", "cache"}
+EXCLUDE_DIRS = {"logs", "node_modules", "__pycache__", ".venv", "venv", "dist", ".git", "lang-data", "cache", "backends"}
 EXCLUDE_SUFFIXES = (".pyc", ".pyo")
 EXCLUDE_FILES = {".runtime.json"}  # 本机运行态配置，不进发布包
 
@@ -248,8 +250,9 @@ def configure_webui_token(value=None) -> str:
 
 def discover_backends() -> list:
     backends = []
-    for entry in sorted(os.listdir(BACKENDS_DIR)):
-        manifest = os.path.join(BACKENDS_DIR, entry, MANIFEST_FILE)
+    os.makedirs(PACKAGES_DIR, exist_ok=True)
+    for entry in sorted(os.listdir(PACKAGES_DIR)):
+        manifest = os.path.join(PACKAGES_DIR, entry, MANIFEST_FILE)
         if not os.path.isfile(manifest):
             continue
         with open(manifest, encoding="utf-8") as f:
@@ -262,9 +265,19 @@ def discover_backends() -> list:
             deps=data.get("deps", ""),
             port=int(data.get("port", 0)),
             version=str(data.get("version", "") or ""),
-            dir=os.path.join(BACKENDS_DIR, entry),
+            dir=os.path.join(PACKAGES_DIR, entry),
         ))
     return backends
+
+
+def load_registry() -> list:
+    """读取根目录 backends.json 注册表（可下载后端索引）；文件缺失返回空列表"""
+    try:
+        with open(os.path.join(BACKENDS_DIR, REGISTRY_FILE), encoding="utf-8") as f:
+            data = json.load(f)
+        return list(data.get("backends", []))
+    except (OSError, ValueError):
+        return []
 
 
 def venv_python_path(backend_dir: str) -> str:
@@ -751,6 +764,89 @@ def setup_backend(backend: Backend) -> None:
         ensure_venv(backend)
     else:
         ensure_node(backend)
+
+
+def registry_entry(name: str) -> dict:
+    for item in load_registry():
+        if item.get("name") == name:
+            return item
+    raise ValueError(f"注册表中不存在后端: {name}")
+
+
+def download_backend_files(entry: dict, backend_dir: str) -> None:
+    """按注册表从远端下载后端程序文件到 backends/<name>；远端不可用时回退到本地同目录文件"""
+    name = entry.get("name", "")
+    source = (entry.get("source") or "").rstrip("/") or (
+        f"https://raw.githubusercontent.com/error2913/error-backends/main/backends/{name}"
+    )
+    files = entry.get("files") or []
+    os.makedirs(backend_dir, exist_ok=True)
+    for rel in files:
+        rel = rel.replace("\\", "/").lstrip("/")
+        if not rel or os.path.normpath(rel).startswith(".."):
+            continue
+        dest = os.path.join(backend_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        fetched = False
+        try:
+            import urllib.request
+
+            with urllib.request.urlopen(f"{source}/{rel}", timeout=60) as resp:
+                data = resp.read()
+            if data:
+                with open(dest, "wb") as f:
+                    f.write(data)
+                fetched = True
+        except Exception:  # noqa: BLE001
+            fetched = False
+        if not fetched and not os.path.isfile(dest):
+            raise RuntimeError(f"下载后端文件失败且本地无副本: {name}/{rel}")
+
+
+def install_backend(name: str) -> Backend:
+    """安装后端：下载程序文件（按需）→ 安装依赖；返回 Backend"""
+    entry = registry_entry(name)
+    backend_dir = os.path.join(PACKAGES_DIR, name)
+    download_backend_files(entry, backend_dir)
+    manifest = os.path.join(backend_dir, MANIFEST_FILE)
+    if not os.path.isfile(manifest):
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump(entry, f, ensure_ascii=False, indent=2)
+    backend = Backend(
+        name=entry.get("name", name),
+        description=entry.get("description", ""),
+        type=entry.get("type", "python"),
+        entry=entry.get("entry", ""),
+        deps=entry.get("deps", ""),
+        port=int(entry.get("port", 0)),
+        version=str(entry.get("version", "") or ""),
+        dir=backend_dir,
+    )
+    print(f"[launcher] 安装后端 {name}，安装依赖...")
+    setup_backend(backend)
+    print(f"[launcher] 后端 {name} 安装完成")
+    return backend
+
+
+def remove_backend_dir(name: str) -> None:
+    """删除整个后端目录（程序 + 依赖），并 git rm 暂存删除记录"""
+    real = os.path.realpath(os.path.join(PACKAGES_DIR, name))
+    root = os.path.realpath(PACKAGES_DIR)
+    if os.path.commonpath([root, real]) != root or os.path.basename(real) != name:
+        raise ValueError(f"拒绝删除非后端包目录: {real}")
+    rel = os.path.relpath(real, ROOT_DIR).replace(os.sep, "/")
+    try:
+        subprocess.run(
+            ["git", "rm", "-r", "-f", "--quiet", "--ignore-unmatch", rel],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            **_no_window_kwargs(),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    shutil.rmtree(real, ignore_errors=True)
 
 
 def read_version() -> str:
@@ -1278,6 +1374,9 @@ def main() -> None:
     setup_p = sub.add_parser("setup", help="安装依赖（幂等，python 后端装入独立 venv）")
     setup_p.add_argument("names", nargs="*")
     setup_p.add_argument("--all", action="store_true", help="安装全部后端")
+    install_b_p = sub.add_parser("install-backend", help="安装后端：下载程序文件并安装依赖")
+    install_b_p.add_argument("name")
+    sub.add_parser("uninstall-backend", help="卸载后端：停止并删除程序与依赖").add_argument("name")
     port_p = sub.add_parser("port", help="查看/修改后端端口（重启后端生效）")
     port_p.add_argument("name")
     port_p.add_argument("value", nargs="?", help="新端口(1-65535)，或 reset 恢复默认")
@@ -1338,6 +1437,22 @@ def main() -> None:
             return
         for backend in targets:
             setup_backend(backend)
+        return
+
+    if args.command == "install-backend":
+        try:
+            install_backend(args.name)
+        except Exception as e:  # noqa: BLE001
+            print(f"[launcher] 安装失败: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if args.command == "uninstall-backend":
+        backend = find([args.name])[0]
+        supervisor.stop([backend])
+        time.sleep(1)
+        remove_backend_dir(args.name)
+        print(f"[launcher] 已卸载后端: {args.name}")
         return
 
     if args.command == "port":

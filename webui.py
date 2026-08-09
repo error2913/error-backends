@@ -15,7 +15,6 @@ API 请求需带 Authorization: Bearer <token> 或 X-Token: <token>。
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -35,9 +34,11 @@ from launcher import (
     effective_webui_port,
     effective_webui_host,
     effective_webui_token,
+    load_registry,
     load_runtime,
     process_memory,
     remove_backend_deps,
+    remove_backend_dir,
     reset_webui_token,
     save_backend_config,
     save_runtime,
@@ -213,7 +214,7 @@ PAGE = """<!DOCTYPE html>
       <button onclick="openToken()">🔑 Token</button>
       <button id="updateBtn" onclick="updateNow()">⬆ 更新<span id="updateDot" class="red-dot" style="display:none"></span></button>
       <button onclick="restartWebUI()">🔄 重启 WebUI</button>
-      <button id="hideDepsBtn" onclick="toggleHideNoDeps()">🙈 隐藏未装依赖</button>
+      <button id="hideDepsBtn" onclick="toggleHideNoDeps()">🙈 隐藏未安装</button>
       <button onclick="refresh()">⟳ 刷新</button>
     </div>
   </header>
@@ -440,8 +441,8 @@ async function refresh(){
   const dot = document.getElementById('updateDot');
   if (dot) dot.style.display = (j.updates && j.updates.repo_update) ? 'inline-block' : 'none';
   let list = (j.backends || []).slice();
-  if (hideNoDeps) list = list.filter(b => b.deps_ready);
-  list.sort((a, b) => (a.deps_ready ? 0 : 1) - (b.deps_ready ? 0 : 1));  // 依赖已装的项目排前面
+  if (hideNoDeps) list = list.filter(b => b.installed);
+  list.sort((a, b) => (a.installed ? 0 : 1) - (b.installed ? 0 : 1));  // 已安装的项目排前面
   document.getElementById('stTotal').textContent = list.length;
   document.getElementById('stRun').textContent = list.filter(b => b.running).length;
   document.getElementById('grid').innerHTML = list.length ? list.map(b => `
@@ -449,11 +450,11 @@ async function refresh(){
       <div class="row1">
         <span class="name">${esc(b.name)}</span>
         <span class="badge ${b.type === 'python' ? 'py' : 'node'}">${esc(b.type).toUpperCase()}</span>
-        <span class="status ${b.running ? 'on' : 'off'}"><span class="dot ${b.running ? 'on' : ''}"></span>${b.running ? '运行中' : '已停止'}</span>
+        <span class="status ${b.running ? 'on' : 'off'}"><span class="dot ${b.running ? 'on' : ''}"></span>${!b.installed ? '未安装' : b.running ? '运行中' : '已停止'}</span>
       </div>
       <div class="desc">${esc(b.description)}</div>
       <div class="meta">
-        <button class="mini" onclick="openConfig('${b.name}')" title="端口 / token / 监听IP">⚙ 配置</button>
+        ${b.installed ? `<button class="mini" onclick="openConfig('${b.name}')" title="端口 / token / 监听IP">⚙ 配置</button>` : ''}
         ${b.version ? `<span class="chip idle" title="版本号">v${esc(b.version)}</span>` : ''}
         ${b.token ? `<span class="chip token" title="访问 token">🔑 ${esc(b.token)}</span>` : ''}
         ${b.running && b.pid ? `<span class="chip idle">pid ${b.pid}</span>` : ''}
@@ -464,22 +465,17 @@ async function refresh(){
         ${b.running && b.mem_mb != null ? `<span class="chip idle">💾 ${b.mem_mb}MB / ${b.mem_pct}%</span>` : ''}
       </div>
       <div class="ops">
-        ${installing.has(b.name)
-          ? `<button class="primary loading" disabled><span class="spin"></span>安装中</button>`
+        ${!b.installed
+          ? installing.has(b.name)
+            ? `<button class="primary loading" disabled><span class="spin"></span>安装中</button>`
+            : `<button class="primary" onclick="installNow('${b.name}')">安装</button>`
           : b.running
             ? `<button class="danger" onclick="run('${b.name}','stop')">停止</button>`
-            : b.deps_ready
-              ? `<button class="primary" onclick="run('${b.name}','start')">启动</button>`
-              : `<button class="primary" onclick="setupNow('${b.name}')">安装依赖</button>`}
-        ${b.running && b.deps_ready ? `<button onclick="restartBackend('${b.name}')">重启</button>` : ''}
-        ${updSet.has(b.name) ? `<button class="primary" onclick="updateBackend('${b.name}')">⬆ 更新</button>` : ''}
-        <button onclick="showLog('${b.name}')">日志</button>
-        ${b.deps_ready
-          ? deleting.has(b.name)
-            ? `<button class="danger loading" disabled><span class="spin"></span>删除中</button>`
-            : `<button class="danger" onclick="delDeps('${b.name}')">删除依赖</button>`
-          : ''}
-        <button class="danger" onclick="deleteBackend('${b.name}')">删除</button>
+            : `<button class="primary" onclick="run('${b.name}','start')">启动</button>`}
+        ${b.installed && b.running ? `<button onclick="restartBackend('${b.name}')">重启</button>` : ''}
+        ${b.installed && updSet.has(b.name) ? `<button class="primary" onclick="updateBackend('${b.name}')">⬆ 更新</button>` : ''}
+        ${b.installed ? `<button onclick="showLog('${b.name}')">日志</button>` : ''}
+        ${b.installed ? `<button class="danger" onclick="uninstallBackend('${b.name}')">卸载</button>` : ''}
       </div>
     </div>`).join('') : '<div class="empty">暂无已收录的后端 — 放入含 <code>backend.json</code> 的后端目录后会自动出现在这里</div>';
   renderInstallAll(list);
@@ -545,14 +541,25 @@ async function updateBackend(name){
   }
   refresh();
 }
-async function deleteBackend(name){
-  if (!confirm('确定删除后端「' + name + '」吗？程序与依赖会一起删除（删除记录已 git 暂存，推送到远端后永久生效）。')) return;
+async function uninstallBackend(name){
+  if (!confirm('确定卸载后端「' + name + '」吗？程序与依赖会一起删除（删除记录已 git 暂存，推送到远端后永久生效）。')) return;
   try {
-    await api('/api/delete-backend/' + name, 'POST');
-    toast('已删除：' + name);
+    await api('/api/uninstall/' + name, 'POST');
+    toast('已卸载：' + name);
   } catch(e){
-    if (!(e && e.message === '需要 WebUI token')) showAlert('删除失败：' + e.message);
+    if (!(e && e.message === '需要 WebUI token')) showAlert('卸载失败：' + e.message);
   }
+  refresh();
+}
+async function installNow(name){
+  installing.add(name);
+  refresh();
+  showInstallLog(name);
+  try {
+    await api('/api/install/' + name, 'POST');
+    await pollInstall(name);
+  } catch(e){}
+  installing.delete(name);
   refresh();
 }
 async function allAct(act){
@@ -592,7 +599,7 @@ function toggleHideNoDeps(){
 }
 function updateHideDepsBtn(){
   const btn = document.getElementById('hideDepsBtn');
-  if (btn) btn.textContent = hideNoDeps ? '🙈 显示全部' : '🙈 隐藏未装依赖';
+  if (btn) btn.textContent = hideNoDeps ? '🙈 显示全部' : '🙈 隐藏未安装';
 }
 function showAlert(msg){
   document.getElementById('alertBody').textContent = msg;
@@ -710,8 +717,8 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
     setup_state = {}  # name -> {"lines": [...], "running": bool, "failed": bool}
     setup_lock = threading.Lock()
 
-    def start_setup(name: str) -> None:
-        """后台执行 launcher.py setup <name>，日志实时追加到 setup_state；已在运行时直接复用"""
+    def start_setup(name: str, words: tuple = ("setup",)) -> None:
+        """后台执行 launcher.py <words> <name>（setup / install-backend），日志实时追加；已在运行时直接复用"""
         with setup_lock:
             if setup_state.get(name, {}).get("running"):
                 return
@@ -729,7 +736,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 if os.name == "nt":
                     kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # 后台安装，不弹控制台黑框
                 proc = subprocess.Popen(
-                    [sys.executable, script, "setup", name],
+                    [sys.executable, script, *words, name],
                     cwd=os.path.dirname(script),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -761,6 +768,10 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         st["failed"] = not ok
 
         threading.Thread(target=run_setup, daemon=True).start()
+
+    def start_install(name: str) -> None:
+        """后台安装后端：launcher.py install-backend <name>（下载程序 + 安装依赖）"""
+        start_setup(name, words=("install-backend",))
 
     def _restart_webui() -> None:
         """响应返回后延迟触发：由独立进程先停旧 WebUI 再启动新 WebUI（重新加载后端清单）"""
@@ -881,7 +892,31 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         "mem_mb": mem_mb,
                         "mem_pct": mem_pct,
                         "deps_ready": deps_ready(b),
+                        "installed": True,
                         "pid": info.get("pid"),
+                    })
+                installed_names = {b.name for b in backends}
+                for item in load_registry():
+                    name = item.get("name")
+                    if not name or name in installed_names:
+                        continue
+                    rows.append({
+                        "name": name,
+                        "description": item.get("description", ""),
+                        "type": item.get("type", "python"),
+                        "version": str(item.get("version", "") or ""),
+                        "port": int(item.get("port", 0)),
+                        "host": "",
+                        "token": "",
+                        "default_port": int(item.get("port", 0)),
+                        "running": False,
+                        "uptime_secs": None,
+                        "restarts": 0,
+                        "mem_mb": None,
+                        "mem_pct": None,
+                        "deps_ready": False,
+                        "installed": False,
+                        "pid": None,
                     })
                 self._json({"ok": True, "backends": rows, "updates": update_check()})
                 return
@@ -1054,6 +1089,10 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         start_setup(name)
                         self._json({"ok": True, "message": "setup started"})
                         return
+                    if action == "install":
+                        start_install(name)
+                        self._json({"ok": True, "message": "install started"})
+                        return
                     if action == "deps-delete":
                         if supervisor.is_running(name):
                             supervisor.stop([backend])
@@ -1106,30 +1145,12 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                             "deps_ready": deps_ready(backend),
                         })
                         return
-                    if action == "delete-backend":
+                    if action == "uninstall":
                         if supervisor.is_running(name):
                             supervisor.stop([backend])
                             time.sleep(1)
-                        remove_backend_deps(backend)
-                        real = os.path.realpath(backend.dir)
-                        root = os.path.realpath(ROOT_DIR)
-                        if os.path.commonpath([root, real]) != root:
-                            self._err("拒绝删除仓库外目录", 400)
-                            return
-                        rel = os.path.relpath(backend.dir, ROOT_DIR).replace(os.sep, "/")
-                        try:
-                            subprocess.run(
-                                ["git", "rm", "-r", "-f", "--quiet", "--ignore-unmatch", rel],
-                                cwd=ROOT_DIR,
-                                capture_output=True,
-                                text=True,
-                                timeout=30,
-                                **_no_window_kwargs(),
-                            )
-                        except Exception:  # noqa: BLE001
-                            pass
-                        shutil.rmtree(real, ignore_errors=True)
-                        self._json({"ok": True, "message": "deleted"})
+                        remove_backend_dir(name)
+                        self._json({"ok": True, "message": "uninstalled"})
                         return
                 self._err("not found", 404)
             except Exception as e:  # noqa: BLE001

@@ -17,6 +17,8 @@
   errorbackend info <后端名>               查看进程详情（pid/时长/内存/拉起次数）
   errorbackend monitor                    实时监控面板
   errorbackend setup --all                安装全部后端依赖
+  errorbackend install-backend <后端名>    安装后端（下载程序 + 安装依赖）
+  errorbackend uninstall-backend <后端名>  卸载后端（停止并删除程序与依赖）
   errorbackend del-deps <后端名>           删除单个后端依赖
   errorbackend update                     从 Git 拉取项目更新
   errorbackend webui                      后台启动 Web 管理界面（不占终端）
@@ -48,9 +50,11 @@ from launcher import (
     deps_ready,
     discover_backends,
     effective_port,
+    install_backend,
     load_config,
     process_memory,
     remove_backend_deps,
+    remove_backend_dir,
     install_webui_service,
     setup_backend,
     start_webui_background,
@@ -69,6 +73,8 @@ COMMANDS = [
     ("info", "查看后端详情"),
     ("monitor", "实时监控面板"),
     ("setup", "安装后端依赖"),
+    ("install-backend", "安装后端（下载程序 + 安装依赖）"),
+    ("uninstall-backend", "卸载后端（停止并删除程序与依赖）"),
     ("del-deps", "删除后端依赖"),
     ("update", "从 Git 拉取项目更新"),
     ("webui", "后台启动 Web 管理界面（不占终端）"),
@@ -352,6 +358,26 @@ def cmd_setup(args):
     print("依赖安装完成")
 
 
+def cmd_install_backend(args):
+    try:
+        install_backend(args.name)
+    except Exception as e:  # noqa: BLE001
+        print(f"安装失败: {e}")
+        sys.exit(1)
+    print(f"已安装后端: {args.name}")
+
+
+def cmd_uninstall_backend(args, supervisor):
+    backend = next((b for b in discover_backends() if b.name == args.name), None)
+    if not backend:
+        print(f"未知后端: {args.name}")
+        sys.exit(1)
+    supervisor.stop([backend])
+    time.sleep(1)
+    remove_backend_dir(args.name)
+    print(f"已卸载后端: {args.name}")
+
+
 def cmd_del_deps(args, supervisor):
     targets = resolve(args)
     if not targets:
@@ -563,6 +589,10 @@ def build_parser():
     setup_p.add_argument("names", nargs="*")
     setup_p.add_argument("--all", action="store_true")
 
+    install_b_p = sub.add_parser("install-backend", help="安装后端（下载程序 + 安装依赖）")
+    install_b_p.add_argument("name")
+    sub.add_parser("uninstall-backend", help="卸载后端（停止并删除程序与依赖）").add_argument("name")
+
     del_p = sub.add_parser("del-deps", help="删除后端依赖")
     del_p.add_argument("names", nargs="*")
     del_p.add_argument("--all", action="store_true")
@@ -614,6 +644,10 @@ def main(argv=None):
         cmd_monitor(args, supervisor)
     elif args.command == "setup":
         cmd_setup(args)
+    elif args.command == "install-backend":
+        cmd_install_backend(args)
+    elif args.command == "uninstall-backend":
+        cmd_uninstall_backend(args, supervisor)
     elif args.command == "del-deps":
         cmd_del_deps(args, supervisor)
     elif args.command == "update":

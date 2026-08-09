@@ -1,0 +1,77 @@
+{
+  "backends": [
+    {
+      "name": "ocr",
+      "description": "OCR 图片文字识别（PP-OCRv6 + ncnn，中英日多语，支持 URL / base64）",
+      "type": "python",
+      "entry": "server.py",
+      "deps": "requirements.txt",
+      "port": 18699,
+      "version": "1.0.0",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/ocr",
+      "files": ["backend.json", "ppocr_ncnn.py", "README.md", "requirements.txt", "server.py"]
+    },
+    {
+      "name": "redbag",
+      "description": "红包图片生成（FastAPI，自定义金额/祝福语/随机背景）",
+      "type": "python",
+      "entry": "backend/main.py",
+      "deps": "backend/requirements.txt",
+      "port": 3000,
+      "version": "1.0.0",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/redbag",
+      "files": [
+        "backend.json",
+        "redbag.js",
+        "backend/config.py",
+        "backend/main.py",
+        "backend/README.txt",
+        "backend/requirements.txt",
+        "backend/resources/fonts/HYWenHei-85W.ttf",
+        "backend/routers/history.py",
+        "backend/routers/open_redbag.py",
+        "backend/routers/send_redbag.py",
+        "backend/services/image_utils.py"
+      ]
+    },
+    {
+      "name": "run_shell",
+      "description": "执行 Shell 命令并将输出渲染为图片（仅 Linux）",
+      "type": "python",
+      "entry": "backend/main.py",
+      "deps": "backend/requirements.txt",
+      "port": 3011,
+      "version": "1.1.1",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/run_shell",
+      "files": [
+        "backend.json",
+        "run_shell.js",
+        "backend/image_utils.py",
+        "backend/main.py",
+        "backend/process_manager.py",
+        "backend/requirements.txt",
+        "backend/fonts/SarasaMonoSC-Bold.ttf",
+        "backend/fonts/SarasaMonoSC-BoldItalic.ttf",
+        "backend/fonts/SarasaMonoSC-Italic.ttf",
+        "backend/fonts/SarasaMonoSC-Regular.ttf"
+      ]
+    },
+    {
+      "name": "chart",
+      "description": "排行榜图表图片生成（FastAPI，头像 + 排名列表）",
+      "type": "python",
+      "entry": "main.py",
+      "deps": "requirements.txt",
+      "port": 3003,
+      "version": "1.0.0",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/chart",
+      "files": [
+        "backend.json",
+        "main.py",
+        "requirements.txt",
+        "resources/fonts/HYWenHei-85W.ttf",
+        "resources/fonts/YinPinHongMengTi.ttf"
+      ]
+    }
+  ]
+}
