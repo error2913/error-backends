@@ -51,6 +51,7 @@ class Backend:
     entry: str
     deps: str
     port: int
+    version: str
     dir: str
 
 
@@ -260,6 +261,7 @@ def discover_backends() -> list:
             entry=data.get("entry", ""),
             deps=data.get("deps", ""),
             port=int(data.get("port", 0)),
+            version=str(data.get("version", "") or ""),
             dir=os.path.join(BACKENDS_DIR, entry),
         ))
     return backends
@@ -295,11 +297,17 @@ def ensure_venv(backend: Backend) -> str:
         print(f"[launcher] {backend.name} 依赖清单有变化，重新安装")
     else:
         print(f"[launcher] {backend.name} 首次运行，创建独立虚拟环境...")
-        subprocess.check_call([sys.executable, "-m", "venv", os.path.join(backend.dir, VENV_DIR_NAME)])
+        subprocess.check_call(
+            [sys.executable, "-m", "venv", os.path.join(backend.dir, VENV_DIR_NAME)],
+            **_no_window_kwargs(),
+        )
     if not current:
         print(f"[launcher] 跳过 {backend.name}: 缺少 {backend.deps}")
     else:
-        subprocess.check_call([py, "-m", "pip", "install", "-r", os.path.join(backend.dir, backend.deps)])
+        subprocess.check_call(
+            [py, "-m", "pip", "install", "-r", os.path.join(backend.dir, backend.deps)],
+            **_no_window_kwargs(),
+        )
     with open(marker, "w", encoding="utf-8") as f:
         f.write(current)
     return py
@@ -313,7 +321,7 @@ def ensure_node(backend: Backend) -> str:
         return "node"
     print(f"[launcher] {backend.name} 首次运行或依赖不完整，npm install...")
     npm = "npm.cmd" if os.name == "nt" else "npm"  # Windows 下 npm 是 .cmd 垫片
-    subprocess.check_call([npm, "install"], cwd=backend.dir)
+    subprocess.check_call([npm, "install"], cwd=backend.dir, **_no_window_kwargs())
     with open(marker, "w", encoding="utf-8") as f:
         f.write("ok")
     return "node"
@@ -494,6 +502,7 @@ def _chrome_executable(backend: Backend) -> str:
             capture_output=True,
             text=True,
             timeout=60,
+            **_no_window_kwargs(),
         )
         return (out.stdout or "").strip()
     except Exception:  # noqa: BLE001
@@ -503,7 +512,7 @@ def _chrome_executable(backend: Backend) -> str:
 def _missing_chromium_libs(chrome: str) -> list:
     """ldd 检查 Chromium 缺少哪些共享库（'not found' 行）"""
     try:
-        out = subprocess.run(["ldd", chrome], capture_output=True, text=True, timeout=60)
+        out = subprocess.run(["ldd", chrome], capture_output=True, text=True, timeout=60, **_no_window_kwargs())
     except Exception:  # noqa: BLE001
         return []
     missing = []
@@ -763,7 +772,7 @@ def ensure_webui_deps() -> None:
     if not os.path.isfile(req):
         return
     print("[launcher] 安装 WebUI 依赖...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req], **_no_window_kwargs())
 
 
 def launch_webui(backends, config, supervisor, host: str = None, port: int = None, open_browser: bool = True) -> None:
@@ -1093,6 +1102,122 @@ def _update_changelog(old_head: str, new_head: str) -> str:
         **_no_window_kwargs(),
     ).stdout.strip()
     return log or "已拉取更新"
+
+
+_UPDATE_CHECK_CACHE = {"ts": 0.0, "data": {}}
+_UPDATE_CHECK_RUNNING = False
+
+
+def _git_remote_branch() -> str:
+    """远端默认分支（origin/HEAD），取不到时回退 main"""
+    try:
+        out = subprocess.run(
+            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            **_no_window_kwargs(),
+        )
+        ref = (out.stdout or "").strip()
+        if ref:
+            return ref.rsplit("/", 1)[-1]
+    except Exception:  # noqa: BLE001
+        pass
+    return "main"
+
+
+def _git_show(path: str) -> str:
+    branch = _git_remote_branch()
+    try:
+        out = subprocess.run(
+            ["git", "show", f"origin/{branch}:{path}"],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            **_no_window_kwargs(),
+        )
+        return (out.stdout or "") if out.returncode == 0 else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def refresh_update_check() -> dict:
+    """git fetch 后对比本地/远端后端版本与仓库提交，返回更新检查结果（网络失败返回空）"""
+    branch = _git_remote_branch()
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin", branch, "--quiet"],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            **_no_window_kwargs(),
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    result = {"repo_update": False, "backends": {}}
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            **_no_window_kwargs(),
+        ).stdout.strip()
+        remote = subprocess.run(
+            ["git", "rev-parse", f"origin/{branch}"],
+            cwd=ROOT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            **_no_window_kwargs(),
+        ).stdout.strip()
+        result["repo_update"] = bool(head and remote and head != remote)
+    except Exception:  # noqa: BLE001
+        pass
+    for backend in discover_backends():
+        rel = os.path.relpath(os.path.join(backend.dir, MANIFEST_FILE), ROOT_DIR).replace(os.sep, "/")
+        remote_v = ""
+        try:
+            remote_text = _git_show(rel)
+            if remote_text:
+                remote_v = str(json.loads(remote_text).get("version", "") or "")
+        except (ValueError, TypeError):
+            remote_v = ""
+        result["backends"][backend.name] = {
+            "local": backend.version,
+            "remote": remote_v,
+            "available": bool(backend.version and remote_v and backend.version != remote_v),
+        }
+    return result
+
+
+def update_check(force: bool = False) -> dict:
+    """带缓存的更新检查：60 秒内复用结果；过期时后台刷新（force=True 同步刷新）"""
+    global _UPDATE_CHECK_RUNNING
+    now = time.time()
+    if force:
+        _UPDATE_CHECK_CACHE["data"] = refresh_update_check()
+        _UPDATE_CHECK_CACHE["ts"] = now
+        return _UPDATE_CHECK_CACHE["data"]
+    if now - _UPDATE_CHECK_CACHE["ts"] > 60 and not _UPDATE_CHECK_RUNNING:
+        _UPDATE_CHECK_RUNNING = True
+
+        def _worker():
+            global _UPDATE_CHECK_RUNNING
+            try:
+                _UPDATE_CHECK_CACHE["data"] = refresh_update_check()
+                _UPDATE_CHECK_CACHE["ts"] = time.time()
+            finally:
+                _UPDATE_CHECK_RUNNING = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+    return _UPDATE_CHECK_CACHE["data"]
 
 
 def _package_files():

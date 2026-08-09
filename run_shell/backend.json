@@ -4,5 +4,6 @@
   "type": "python",
   "entry": "backend/main.py",
   "deps": "backend/requirements.txt",
-  "port": 3011
+  "port": 3011,
+  "version": "1.1.1"
 }

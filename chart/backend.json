@@ -4,5 +4,6 @@
   "type": "python",
   "entry": "main.py",
   "deps": "requirements.txt",
-  "port": 3003
+  "port": 3003,
+  "version": "1.0.0"
 }

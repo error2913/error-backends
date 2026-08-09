@@ -4,5 +4,6 @@
   "type": "python",
   "entry": "server.py",
   "deps": "requirements.txt",
-  "port": 18699
+  "port": 18699,
+  "version": "1.0.0"
 }

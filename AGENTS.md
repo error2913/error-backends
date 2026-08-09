@@ -69,6 +69,8 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 除 `/`（页面）与 `/icon.png` / `/icon-256.png`（图标）外，所有请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`（token 为空时不校验）。
 
 - `GET /api/backends`：卡片数据（含 `port`/`host`/`token`/`running`/`uptime_secs`/`restarts`/`mem_*`/`deps_ready`）
+- `POST /api/update-backend/<name>`：拉取代码（git pull）→ 检查/安装依赖 → 重启该后端
+- `POST /api/delete-backend/<name>`：停止后端 → 删除依赖 → `git rm` 并删除整个后端目录
 - `GET /api/webui-token`：查看当前 WebUI token；`POST /api/webui-token`：body `{token}` 修改或 `{reset:true}` 重新随机生成（改完立即生效，无需重启）
 - `POST /api/webui-restart`：重启 WebUI（响应先返回，随后由独立进程执行 `launcher.py webui-restart`，用于重新加载后端清单）
 - `GET|POST /api/config/<name>`：查询/保存 {port, token, host}
@@ -87,6 +89,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：tag 去掉 `v` 写进 VERS
 - 运行时配置读写只通过 `launcher.backend_config()` / `save_backend_config()`，不要直接改 `.runtime.json` 结构。
 - WebUI 的端口/监听地址/访问 token 配置统一走 `launcher.configure_webui_*()`，`launcher.py` 与 `errorbackend.py` 都要有对应子命令（`webui-port` / `webui-host` / `webui-token`），改后自动重启 WebUI。
 - 新增「重启 WebUI」入口时三处同步：WebUI 页面按钮（`POST /api/webui-restart`）+ `launcher.py webui-restart` + `errorbackend.py webui-restart`。
+- 后端版本号：`backend.json` 必须带 `version` 字段；更新检查走 `launcher.update_check()`（git fetch 对比，60 秒缓存，失败返回空）。
 - 端口约定：WebUI 端口首次运行随机生成（10000-65535，避开已收录后端端口）；新增后端默认端口避开本机已有服务端口，也不与本项目已有后端重复（当前 `ocr` 18699 / `redbag` 3000 / `run_shell` 3011 / `chart` 3003）。
 - 命令行与 WebUI 共用同一套后端进程与状态（`logs/state.json`），改动两处入口都要同步（如新增子命令：`launcher.py` + `errorbackend.py` + README）。
 - 平台差异：Windows 与 Linux 行为保持一致；系统服务类命令在非 Linux 平台提示「仅支持 Linux」并不展示在 help（`errorbackend` 的 cmd_help 按 `os.name` 过滤）。

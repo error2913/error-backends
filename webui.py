@@ -15,6 +15,7 @@ API 请求需带 Authorization: Bearer <token> 或 X-Token: <token>。
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -25,11 +26,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from launcher import (
     _can_open_browser,
+    _no_window_kwargs,
     DEFAULT_LOG_DIR,
+    ROOT_DIR,
     Supervisor,
     backend_config,
-    effective_webui_port,
     deps_ready,
+    effective_webui_port,
     effective_webui_host,
     effective_webui_token,
     load_runtime,
@@ -39,6 +42,8 @@ from launcher import (
     save_backend_config,
     save_runtime,
     save_webui_token,
+    setup_backend,
+    update_check,
     update_project,
 )
 
@@ -157,6 +162,8 @@ PAGE = """<!DOCTYPE html>
   button.loading { opacity: .8; cursor: progress; }
   .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; margin-right: 6px; vertical-align: -1px; animation: rot .8s linear infinite; }
   @keyframes rot { to { transform: rotate(360deg); } }
+  #updateBtn { position: relative; }
+  .red-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,.8); }
   .modal {
     position: fixed; inset: 0; background: rgba(5,8,12,.55); backdrop-filter: blur(4px);
     display: none; align-items: center; justify-content: center; z-index: 50; padding: 24px;
@@ -204,7 +211,7 @@ PAGE = """<!DOCTYPE html>
     <div class="header-right">
       <button id="themeBtn" onclick="cycleTheme()">主题</button>
       <button onclick="openToken()">🔑 Token</button>
-      <button id="updateBtn" onclick="updateNow()">⬆ 更新</button>
+      <button id="updateBtn" onclick="updateNow()">⬆ 更新<span id="updateDot" class="red-dot" style="display:none"></span></button>
       <button onclick="restartWebUI()">🔄 重启 WebUI</button>
       <button id="hideDepsBtn" onclick="toggleHideNoDeps()">🙈 隐藏未装依赖</button>
       <button onclick="refresh()">⟳ 刷新</button>
@@ -427,6 +434,11 @@ function cycleTheme(){
 }
 async function refresh(){
   const j = await api('/api/backends');
+  const updMap = (j.updates && j.updates.backends) || {};
+  const updSet = new Set();
+  for (const k in updMap) if (updMap[k].available) updSet.add(k);
+  const dot = document.getElementById('updateDot');
+  if (dot) dot.style.display = (j.updates && j.updates.repo_update) ? 'inline-block' : 'none';
   let list = (j.backends || []).slice();
   if (hideNoDeps) list = list.filter(b => b.deps_ready);
   list.sort((a, b) => (a.deps_ready ? 0 : 1) - (b.deps_ready ? 0 : 1));  // 依赖已装的项目排前面
@@ -442,6 +454,7 @@ async function refresh(){
       <div class="desc">${esc(b.description)}</div>
       <div class="meta">
         <button class="mini" onclick="openConfig('${b.name}')" title="端口 / token / 监听IP">⚙ 配置</button>
+        ${b.version ? `<span class="chip idle" title="版本号">v${esc(b.version)}</span>` : ''}
         ${b.token ? `<span class="chip token" title="访问 token">🔑 ${esc(b.token)}</span>` : ''}
         ${b.running && b.pid ? `<span class="chip idle">pid ${b.pid}</span>` : ''}
       </div>
@@ -459,12 +472,14 @@ async function refresh(){
               ? `<button class="primary" onclick="run('${b.name}','start')">启动</button>`
               : `<button class="primary" onclick="setupNow('${b.name}')">安装依赖</button>`}
         ${b.running && b.deps_ready ? `<button onclick="restartBackend('${b.name}')">重启</button>` : ''}
+        ${updSet.has(b.name) ? `<button class="primary" onclick="updateBackend('${b.name}')">⬆ 更新</button>` : ''}
         <button onclick="showLog('${b.name}')">日志</button>
         ${b.deps_ready
           ? deleting.has(b.name)
             ? `<button class="danger loading" disabled><span class="spin"></span>删除中</button>`
             : `<button class="danger" onclick="delDeps('${b.name}')">删除依赖</button>`
           : ''}
+        <button class="danger" onclick="deleteBackend('${b.name}')">删除</button>
       </div>
     </div>`).join('') : '<div class="empty">暂无已收录的后端 — 放入含 <code>backend.json</code> 的后端目录后会自动出现在这里</div>';
   renderInstallAll(list);
@@ -521,6 +536,25 @@ async function restartBackend(name){
   toast('已重启：' + name);
   refresh();
 }
+async function updateBackend(name){
+  try {
+    const j = await api('/api/update-backend/' + name, 'POST');
+    toast(j.updated ? '已更新并重启：' + name : '没有可更新的：' + name);
+  } catch(e){
+    if (!(e && e.message === '需要 WebUI token')) showAlert('更新失败：' + e.message);
+  }
+  refresh();
+}
+async function deleteBackend(name){
+  if (!confirm('确定删除后端「' + name + '」吗？程序与依赖会一起删除（删除记录已 git 暂存，推送到远端后永久生效）。')) return;
+  try {
+    await api('/api/delete-backend/' + name, 'POST');
+    toast('已删除：' + name);
+  } catch(e){
+    if (!(e && e.message === '需要 WebUI token')) showAlert('删除失败：' + e.message);
+  }
+  refresh();
+}
 async function allAct(act){
   const j = await api('/api/' + act + '-all', 'POST');
   if ((act === 'start' || act === 'restart') && j.started && j.started.length === 0 && j.skipped && j.skipped.length){
@@ -540,7 +574,7 @@ async function updateNow(){
     const j = await api('/api/update', 'POST');
     if (!j.ok){ showAlert('更新失败：\\n\\n' + (j.output || j.message || '')); return; }
     if (!j.updated){ showAlert('没有可以更新的'); return; }
-    showAlert('更新完成：\\n\\n' + (j.changelog || j.output || '已拉取更新') + '\\n\\n2 秒后自动重启 WebUI');
+    showAlertHtml('更新完成：<br><br>' + fmtChangelog(j.changelog || j.output || '已拉取更新') + '<br><span style="color:var(--muted)">后端已一并重启，2 秒后自动重启 WebUI</span>');
     setTimeout(doRestartWebUI, 2000);
   } catch(e){
     if (!(e && e.message === '需要 WebUI token')) showAlert('更新失败：' + e.message);
@@ -563,6 +597,23 @@ function updateHideDepsBtn(){
 function showAlert(msg){
   document.getElementById('alertBody').textContent = msg;
   document.getElementById('alertModal').classList.add('open');
+}
+function showAlertHtml(html){
+  document.getElementById('alertBody').innerHTML = html;
+  document.getElementById('alertModal').classList.add('open');
+}
+function fmtChangelog(text){
+  const lines = (text || '').split('\n');
+  let html = '';
+  for (const raw of lines){
+    const line = raw.trim();
+    if (!line) { html += '<br>'; continue; }
+    if (line.startsWith('## ')) html += '<b style="font-size:14px;color:var(--text)">' + esc(line.slice(3)) + '</b><br>';
+    else if (line.startsWith('### ')) html += '<b>' + esc(line.slice(4)) + '</b><br>';
+    else if (line.startsWith('- ')) html += '• ' + esc(line.slice(2)) + '<br>';
+    else html += esc(line) + '<br>';
+  }
+  return html;
 }
 function closeAlert(){ document.getElementById('alertModal').classList.remove('open'); }
 async function setupAll(){
@@ -819,6 +870,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         "name": b.name,
                         "description": b.description,
                         "type": b.type,
+                        "version": b.version,
                         "port": cfg["port"],
                         "host": cfg["host"],
                         "token": cfg["token"],
@@ -831,7 +883,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         "deps_ready": deps_ready(b),
                         "pid": info.get("pid"),
                     })
-                self._json({"ok": True, "backends": rows})
+                self._json({"ok": True, "backends": rows, "updates": update_check()})
                 return
             if self.path.startswith("/api/config/"):
                 name = self.path[len("/api/config/"):]
@@ -920,6 +972,16 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 if path == "/api/update":
                     try:
                         res = update_project()
+                        if res["updated"]:
+                            # 更新成功：后端一并重启，让新代码生效
+                            supervisor.stop(backends)
+                            time.sleep(0.5)
+                            targets = [b for b in backends if deps_ready(b)]
+                            for name in targets:
+                                if name in supervisor.state.setdefault("stopped", []):
+                                    supervisor.state["stopped"].remove(name)
+                            supervisor._save_state()
+                            supervisor.start(targets)
                         self._json({
                             "ok": True,
                             "message": "updated" if res["updated"] else "no-update",
@@ -1018,6 +1080,56 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         time.sleep(0.5)
                         supervisor.start([backend])
                         self._json({"ok": True, "message": "restarted"})
+                        return
+                    if action == "update-backend":
+                        try:
+                            res = update_project()
+                        except Exception as e:  # noqa: BLE001
+                            self._json({"ok": False, "message": str(e)})
+                            return
+                        if not deps_ready(backend):
+                            try:
+                                setup_backend(backend)
+                            except Exception as e:  # noqa: BLE001
+                                self._json({"ok": False, "message": f"依赖安装失败: {e}"})
+                                return
+                        if supervisor.is_running(name):
+                            supervisor.stop([backend])
+                        if name in supervisor.state.get("stopped", []):
+                            supervisor.state["stopped"].remove(name)
+                            supervisor._save_state()
+                        supervisor.start([backend])
+                        self._json({
+                            "ok": True,
+                            "updated": res["updated"],
+                            "message": "updated" if res["updated"] else "no-update",
+                            "deps_ready": deps_ready(backend),
+                        })
+                        return
+                    if action == "delete-backend":
+                        if supervisor.is_running(name):
+                            supervisor.stop([backend])
+                            time.sleep(1)
+                        remove_backend_deps(backend)
+                        real = os.path.realpath(backend.dir)
+                        root = os.path.realpath(ROOT_DIR)
+                        if os.path.commonpath([root, real]) != root:
+                            self._err("拒绝删除仓库外目录", 400)
+                            return
+                        rel = os.path.relpath(backend.dir, ROOT_DIR).replace(os.sep, "/")
+                        try:
+                            subprocess.run(
+                                ["git", "rm", "-r", "-f", "--quiet", "--ignore-unmatch", rel],
+                                cwd=ROOT_DIR,
+                                capture_output=True,
+                                text=True,
+                                timeout=30,
+                                **_no_window_kwargs(),
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        shutil.rmtree(real, ignore_errors=True)
+                        self._json({"ok": True, "message": "deleted"})
                         return
                 self._err("not found", 404)
             except Exception as e:  # noqa: BLE001
