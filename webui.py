@@ -832,6 +832,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 body = PAGE.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
