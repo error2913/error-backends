@@ -72,6 +72,12 @@ assets/                WebUI 图标
 
 全部通过 WebUI 完成：后端安装/卸载、启停、更新、日志、端口/token/监听 IP 配置。`.runtime.json` 保存运行时配置（已 gitignore）。页面右上角：「🔑 Token」管理访问 token、「⬆ 更新」整体更新、「🔄 重启 WebUI」重新加载后端清单、「🙈 隐藏未安装」只显示已装后端。
 
+## 更新
+
+- **框架更新**：WebUI 右上角「⬆ 更新」或 `errorbackend update`（基于 git pull，需 git clone 安装；下载 release 包运行则重新下载新版覆盖）。
+- **后端更新**：注册表版本高于已安装版本时，卡片出现「⬆ 更新」按钮，点击重新拉取程序并重装依赖；或 `uninstall-backend` 后重新 `install-backend`。
+- **升级残留**：旧版（后端位于仓库顶层）升级到商店模型后，顶层目录里的 `node_modules/`、`.venv/`、缓存等未跟踪残留会自动清理——launcher 启动时检测到「git 已不再跟踪」的旧后端目录（`ocr` / `redbag` / `run_shell` / `chart`）会整目录删除，商店 `backends/` 与运行配置 `installed/` 不受影响。
+
 ## 命令行（errorbackend）
 
 由 launcher 启动时自动安装，或手动 `python install_cli.py`：

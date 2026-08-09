@@ -50,7 +50,7 @@
 - 版本检查：`launcher.update_check()`（60 秒缓存）`git fetch` 后对比本地/远端 `backend.json` 的 `version`，返回 `{repo_update, backends:{name:{local,remote,available}}}`；失败返回空（前端静默）
 
 ### WebUI 启动 / CLI 自动安装
-`main()` 最先 `ensure_cli_installed()`（写 shim + PATH，幂等）；plain run 自动生成 WebUI 端口/token 并后台启动后退出。自动开浏览器仅限 Windows 或显式设置 `$BROWSER` 的 Linux/macOS。
+`main()` 最先 `ensure_cli_installed()`（写 shim + PATH，幂等）→ `cleanup_legacy_backend_dirs()`（升级清理：git 已不跟踪的旧版顶层后端目录整目录删除，防残留）→ plain run 自动生成 WebUI 端口/token 并后台启动后退出。自动开浏览器仅限 Windows 或显式设置 `$BROWSER` 的 Linux/macOS。
 
 ## WebUI API
 
