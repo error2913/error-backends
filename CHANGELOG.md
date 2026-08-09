@@ -23,6 +23,7 @@
 - 修复「⬆ 更新」按钮未携带 WebUI token 导致 401（unauthorized）的问题，改用统一 api() 请求
 - 收录 `redbag`（红包图片生成，FastAPI，3000）与 `run_shell`（Shell 执行并渲染图片，仅 Linux，3011）两个后端，接入 `ERROR_BACKEND_*` 环境变量与 token 鉴权，资源路径改为脚本目录相对
 - 收录 `chart` 后端（排行榜图表图片生成，FastAPI，3003）；后端目录统一改名为 ASCII 路径（`redbag/backend`、`run_shell/backend`、`chart`），不再出现中文路径
+- WebUI：「⬆ 更新」点击后转圈、更新成功自动重启 WebUI；后端卡片按依赖是否就绪排序；新增「🙈 隐藏未装依赖」开关（状态本地记住）
 
 ## 0.1.0 - 2026-08-08
 
