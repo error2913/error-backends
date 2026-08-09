@@ -69,6 +69,7 @@
 ## 开发约定
 
 - WebUI 保持纯标准库；后端依赖只在各自 venv/node_modules，不要手动装
+- 改 `webui.py` 的 `PAGE`（内嵌 HTML/JS）后，必须用 `python -c "import webui; ..."` 取出 PAGE 并 `node --check` 验证 JS；PAGE 是 Python 字符串，JS 里要输出的 `\n` 必须写成 `\\n`（单反斜杠会被 Python 转成真实换行、直接弄坏页面脚本）
 - 新增后端 = `backends/<name>/`（含 `backend.json`，必须有 `version`）+ `backends.json` 注册表条目（`files` 清单要与包目录同步）
 - UI 不提供手动「安装依赖 / 删除依赖」入口，依赖只随安装/卸载/更新
 - 后台子进程 Windows 下必须带 `CREATE_NO_WINDOW`：统一用 `launcher._no_window_kwargs()`；新增 subprocess 调用后 `rg -n "subprocess"` 排查
