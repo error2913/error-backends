@@ -29,6 +29,7 @@ from launcher import (
     DEFAULT_LOG_DIR,
     ROOT_DIR,
     Supervisor,
+    backend_custom_config,
     backend_config,
     deps_ready,
     effective_webui_port,
@@ -210,11 +211,10 @@ PAGE = """<!DOCTYPE html>
       <div class="sub">launcher WebUI</div>
     </div>
     <div class="header-right">
-      <button id="themeBtn" onclick="cycleTheme()">主题</button>
       <button onclick="openToken()">🔑 Token</button>
       <button id="updateBtn" onclick="updateNow()">⬆ 更新<span id="updateDot" class="red-dot" style="display:none"></span></button>
       <button onclick="restartWebUI()">🔄 重启 WebUI</button>
-      <button id="hideDepsBtn" onclick="toggleHideNoDeps()">🙈 隐藏未安装</button>
+      <button id="hideDepsBtn" onclick="toggleHideNoDeps()">🙈 隐藏未装后端</button>
       <button onclick="refresh()">⟳ 刷新</button>
     </div>
   </header>
@@ -276,6 +276,7 @@ PAGE = """<!DOCTYPE html>
       <label class="cfg-label">监听 IP
         <input id="cfgHost" class="port" type="text" spellcheck="false" placeholder="0.0.0.0">
       </label>
+      <div id="cfgCustom" style="display:grid; gap:16px;"></div>
     </div>
     <div style="padding:12px 18px; text-align:right; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end;">
       <button onclick="closeConfig()">取消</button>
@@ -310,7 +311,10 @@ PAGE = """<!DOCTYPE html>
   </div>
 </div>
 <div id="toast"></div>
-<footer>error-backends · launcher.py webui</footer>
+<footer style="display:flex; align-items:center; justify-content:space-between;">
+  <span>error-backends · launcher.py webui</span>
+  <button id="themeBtn" onclick="cycleTheme()" style="margin-left:10px;">主题</button>
+</footer>
 <script>
 let current = null;
 let currentType = 'backend';
@@ -454,7 +458,6 @@ async function refresh(){
       </div>
       <div class="desc">${esc(b.description)}</div>
       <div class="meta">
-        ${b.installed ? `<button class="mini" onclick="openConfig('${b.name}')" title="端口 / token / 监听IP">⚙ 配置</button>` : ''}
         ${b.version ? `<span class="chip idle" title="版本号">v${esc(b.version)}</span>` : ''}
         ${b.token ? `<span class="chip token" title="访问 token">🔑 ${esc(b.token)}</span>` : ''}
         ${b.running && b.pid ? `<span class="chip idle">pid ${b.pid}</span>` : ''}
@@ -467,12 +470,12 @@ async function refresh(){
       <div class="ops">
         ${!b.installed
           ? installing.has(b.name)
-            ? `<button class="primary loading" disabled><span class="spin"></span>安装中</button>`
+            ? `<button class="primary loading" disabled><span class="spin"></span>安装中</button><button onclick="showInstallLog('${b.name}')">日志</button>`
             : `<button class="primary" onclick="installNow('${b.name}')">安装</button>`
           : b.running
-            ? `<button class="danger" onclick="run('${b.name}','stop')">停止</button>`
+            ? `<button class="danger" onclick="run('${b.name}','stop')">停止</button><button onclick="restartBackend('${b.name}')">重启</button>`
             : `<button class="primary" onclick="run('${b.name}','start')">启动</button>`}
-        ${b.installed && b.running ? `<button onclick="restartBackend('${b.name}')">重启</button>` : ''}
+        ${b.installed ? `<button onclick="openConfig('${b.name}')">配置</button>` : ''}
         ${b.installed && updSet.has(b.name) ? `<button class="primary" onclick="updateBackend('${b.name}')">⬆ 更新</button>` : ''}
         ${b.installed ? `<button onclick="showLog('${b.name}')">日志</button>` : ''}
         ${b.installed ? `<button class="danger" onclick="uninstallBackend('${b.name}')">卸载</button>` : ''}
@@ -599,7 +602,7 @@ function toggleHideNoDeps(){
 }
 function updateHideDepsBtn(){
   const btn = document.getElementById('hideDepsBtn');
-  if (btn) btn.textContent = hideNoDeps ? '🙈 显示全部' : '🙈 隐藏未安装';
+  if (btn) btn.textContent = hideNoDeps ? '🙈 显示全部' : '🙈 隐藏未装后端';
 }
 function showAlert(msg){
   document.getElementById('alertBody').textContent = msg;
@@ -651,6 +654,23 @@ async function openConfig(name){
   document.getElementById('cfgPort').value = j.port;
   document.getElementById('cfgToken').value = j.token || '';
   document.getElementById('cfgHost').value = j.host || '0.0.0.0';
+  const box = document.getElementById('cfgCustom');
+  box.innerHTML = '';
+  const schema = j.config_schema || {};
+  const opts = j.options || {};
+  for (const key in schema){
+    const f = schema[key];
+    const label = document.createElement('label');
+    label.className = 'cfg-label';
+    label.textContent = f.label || key;
+    const input = document.createElement('input');
+    input.className = 'port';
+    input.type = f.type === 'number' ? 'number' : 'text';
+    input.value = opts[key] != null ? opts[key] : (f.default || '');
+    input.dataset.cfgKey = key;
+    label.appendChild(input);
+    box.appendChild(label);
+  }
   document.getElementById('configModal').classList.add('open');
 }
 function closeConfig(){
@@ -667,7 +687,11 @@ async function saveConfig(){
   const token = document.getElementById('cfgToken').value.trim();
   const host = document.getElementById('cfgHost').value.trim() || '0.0.0.0';
   if (!port || port < 1 || port > 65535){ toast('端口必须是 1-65535'); return; }
-  await api('/api/config/' + cfgName, 'POST', JSON.stringify({port, token, host}));
+  const options = {};
+  document.querySelectorAll('#cfgCustom input[data-cfg-key]').forEach(inp => {
+    options[inp.dataset.cfgKey] = inp.value.trim();
+  });
+  await api('/api/config/' + cfgName, 'POST', JSON.stringify({port, token, host, options}));
   toast('配置已保存：' + cfgName + '（重启后端生效）');
   closeConfig();
   refresh();
@@ -928,7 +952,19 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                     self._err(f"未知后端: {name}", 404)
                     return
                 cfg = backend_config(backend)
-                self._json({"ok": True, "port": cfg["port"], "token": cfg["token"], "host": cfg["host"], "default_port": backend.port})
+                schema = backend_custom_config(backend)
+                options = {}
+                for key, field in schema.items():
+                    options[key] = cfg["options"].get(key, field.get("default", ""))
+                self._json({
+                    "ok": True,
+                    "port": cfg["port"],
+                    "token": cfg["token"],
+                    "host": cfg["host"],
+                    "default_port": backend.port,
+                    "options": options,
+                    "config_schema": schema,
+                })
                 return
             if self.path.startswith("/api/setup-log/"):
                 name = self.path[len("/api/setup-log/"):]
@@ -1050,8 +1086,23 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         return
                     token = str(body.get("token", "") or "")
                     host = str(body.get("host", "") or "0.0.0.0")
-                    cfg = save_backend_config(name, port=value, token=token, host=host)
-                    self._json({"ok": True, "port": cfg["port"], "token": cfg["token"], "host": cfg["host"]})
+                    options = {}
+                    raw_options = body.get("options") or {}
+                    for key, field in backend_custom_config(backend).items():
+                        if key not in raw_options:
+                            continue
+                        val = str(raw_options[key]).strip()
+                        if field.get("type") == "number" and val:
+                            try:
+                                int(val)
+                            except ValueError:
+                                self._err(f"配置项「{field.get('label', key)}」必须是数字", 400)
+                                return
+                        if not val:
+                            val = str(field.get("default", "") or "")
+                        options[key] = val
+                    cfg = save_backend_config(name, port=value, token=token, host=host, options=options)
+                    self._json({"ok": True, "port": cfg["port"], "token": cfg["token"], "host": cfg["host"], "options": options})
                     return
                 if path.startswith("/api/port/"):
                     rest = path[len("/api/port/"):]

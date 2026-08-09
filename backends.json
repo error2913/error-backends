@@ -8,6 +8,20 @@
       "deps": "requirements.txt",
       "port": 18699,
       "version": "1.0.0",
+      "config": {
+        "max_body_mb": {
+          "label": "请求体上限（MB，base64 图片）",
+          "type": "number",
+          "default": "12",
+          "env": "MAX_BODY_MB"
+        },
+        "ocr_threads": {
+          "label": "推理线程数（1-8）",
+          "type": "number",
+          "default": "2",
+          "env": "OCR_THREADS"
+        }
+      },
       "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/ocr",
       "files": ["backend.json", "ppocr_ncnn.py", "README.md", "requirements.txt", "server.py"]
     },

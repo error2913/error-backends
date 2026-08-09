@@ -83,7 +83,7 @@ def ensure_models() -> None:
 
 
 def load_engine() -> PaddleOCR:
-    threads = max(1, min(2, os.cpu_count() or 2))
+    threads = max(1, min(8, int(os.environ.get("OCR_THREADS") or 2)))
     log(f"加载 PP-OCRv6 模型 (tiny_det + small_rec, threads={threads})…")
     t0 = time.time()
     eng = PaddleOCR(str(MODEL_DIR), num_threads=threads)

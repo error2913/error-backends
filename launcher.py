@@ -84,7 +84,7 @@ def save_runtime(runtime: dict) -> None:
 
 
 def backend_config(backend: Backend) -> dict:
-    """后端运行配置：端口/token/监听IP，优先 .runtime.json（端口兼容旧版 ports 字段）"""
+    """后端运行配置：端口/token/监听IP + 自定义配置项，优先 .runtime.json（端口兼容旧版 ports 字段）"""
     rt = load_runtime()
     cfg = rt.get("config", {}).get(backend.name) or {}
     port = cfg.get("port")
@@ -94,11 +94,12 @@ def backend_config(backend: Backend) -> dict:
         "port": int(port),
         "token": str(cfg.get("token") or ""),
         "host": str(cfg.get("host") or "0.0.0.0"),
+        "options": dict(cfg.get("options") or {}),
     }
 
 
-def save_backend_config(name: str, port=None, token=None, host=None) -> dict:
-    """保存后端运行配置到 .runtime.json（只更新传入字段），端口同步旧版 ports 字段"""
+def save_backend_config(name: str, port=None, token=None, host=None, options: dict = None) -> dict:
+    """保存后端运行配置到 .runtime.json（只更新传入字段），端口同步旧版 ports 字段；options 为自定义配置项"""
     rt = load_runtime()
     cfg = rt.setdefault("config", {}).setdefault(name, {})
     if port is not None:
@@ -108,8 +109,20 @@ def save_backend_config(name: str, port=None, token=None, host=None) -> dict:
         cfg["token"] = str(token)
     if host is not None:
         cfg["host"] = str(host) or "0.0.0.0"
+    if options is not None:
+        cfg["options"] = {str(k): str(v) for k, v in options.items() if v is not None and str(v) != ""}
     save_runtime(rt)
     return cfg
+
+
+def backend_custom_config(backend: Backend) -> dict:
+    """backend.json 声明的自定义配置 schema：{key: {label, type, default, env}}"""
+    try:
+        with open(os.path.join(backend.dir, MANIFEST_FILE), encoding="utf-8") as f:
+            data = json.load(f)
+        return dict(data.get("config") or {})
+    except (OSError, ValueError):
+        return {}
 
 
 def effective_port(backend: Backend) -> int:
@@ -692,6 +705,11 @@ class Supervisor:
         env["ERROR_BACKEND_PORT"] = str(cfg["port"])
         env["ERROR_BACKEND_HOST"] = cfg["host"]
         env["ERROR_BACKEND_TOKEN"] = cfg["token"]
+        # 自定义配置项注入（backend.json config 声明的 env）
+        for key, field in backend_custom_config(backend).items():
+            env_name = field.get("env")
+            if env_name:
+                env[env_name] = str(cfg["options"].get(key, field.get("default", "")) or "")
         kwargs = {}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # 无控制台父进程（webui/后台模式）下不弹黑框

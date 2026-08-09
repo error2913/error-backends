@@ -34,6 +34,8 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 
 依赖随以上操作自动管理，无手动「安装依赖 / 删除依赖」按钮。
 
+卡片按钮按状态切换：未安装只显示「安装」；安装中显示转圈 + 「日志」；安装完成后显示「启动 / 配置 / 日志 / 卸载」；运行中显示「停止 / 重启 / 配置 / 日志 / 卸载」。「配置」弹窗除端口/token/监听 IP 外，还会按后端 `backend.json` 的 `config` 声明渲染自定义配置项（保存后重启后端生效）。
+
 ## 跨平台
 
 - Python 后端用独立 venv（Windows `.venv\Scripts\python.exe`，Linux `.venv/bin/python`），Node 后端用 `node_modules`；依赖只在安装/更新时处理
@@ -89,6 +91,7 @@ errorbackend webui / webui-stop / webui-restart / webui-port / webui-host / webu
 2. 在根目录 `backends.json` 注册表中添加条目：
    - `source`：程序文件下载根地址（默认 `https://raw.githubusercontent.com/error2913/error-backends/main/backends/<name>`）
    - `files`：需下载的文件清单（相对路径，须与包目录保持一致）
+   - `config`（可选）：自定义配置 schema，`{key: {label, type: text|number, default, env}}`——WebUI 配置弹窗渲染，保存后经 launcher 以环境变量 `env` 注入后端进程
 3. 发布到远端后，WebUI 即出现该后端卡片，可「安装」
 
 ## 来源与许可

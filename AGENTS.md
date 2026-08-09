@@ -58,6 +58,7 @@
 
 - `GET /api/backends`：已安装 + 注册表未安装卡片数据，含 `updates` 版本检查结果
 - `GET|POST /api/config/<name>`、`POST /api/port/<name>[/reset]`：后端端口/token/host 配置
+- `GET /api/config/<name>` 额外返回 `options`（自定义配置值与默认值合并）与 `config_schema`（来自 `backend.json` 的 `config` 字段）；`POST` 接受 `options`，按 schema 校验并保存到 `.runtime.json` 的 `config/<name>.options`
 - `POST /api/install/<name>`：后台安装（轮询 `/api/setup-log/<name>`）
 - `POST /api/uninstall/<name>`：停止 + 删除程序与依赖
 - `POST /api/start-all|stop-all|restart-all|start/<name>|stop/<name>|restart/<name>`
@@ -71,6 +72,7 @@
 - WebUI 保持纯标准库；后端依赖只在各自 venv/node_modules，不要手动装
 - 改 `webui.py` 的 `PAGE`（内嵌 HTML/JS）后，必须用 `python -c "import webui; ..."` 取出 PAGE 并 `node --check` 验证 JS；PAGE 是 Python 字符串，JS 里要输出的 `\n` 必须写成 `\\n`（单反斜杠会被 Python 转成真实换行、直接弄坏页面脚本）
 - 新增后端 = `backends/<name>/`（含 `backend.json`，必须有 `version`）+ `backends.json` 注册表条目（`files` 清单要与包目录同步）
+- 自定义配置：`backend.json` 的 `config` 声明 `{key: {label, type, default, env}}`，`launcher.Supervisor.spawn` 会把保存值（或默认值）以 `env` 注入；改配置后需重启后端生效
 - UI 不提供手动「安装依赖 / 删除依赖」入口，依赖只随安装/卸载/更新
 - 后台子进程 Windows 下必须带 `CREATE_NO_WINDOW`：统一用 `launcher._no_window_kwargs()`；新增 subprocess 调用后 `rg -n "subprocess"` 排查
 - 日志统一 UTF-8：子进程环境加 `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1`
