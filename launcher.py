@@ -296,9 +296,11 @@ def deps_hash(backend: Backend) -> str:
 
 
 def ensure_venv(backend: Backend) -> str:
-    """为 python 后端创建/复用独立 venv 并按需安装依赖，返回 venv 内的 python 路径"""
+    """为 python 后端创建/复用独立 venv 并按需安装依赖，返回 venv 内的 python 路径；
+    依赖清单变化时重建整个 venv，保证依赖不多不少"""
     py = venv_python_path(backend.dir)
-    marker = os.path.join(backend.dir, VENV_DIR_NAME, DEPS_MARKER)
+    venv_dir = os.path.join(backend.dir, VENV_DIR_NAME)
+    marker = os.path.join(venv_dir, DEPS_MARKER)
     current = deps_hash(backend)
     if os.path.isfile(py):
         try:
@@ -307,13 +309,11 @@ def ensure_venv(backend: Backend) -> str:
                     return py
         except OSError:
             pass
-        print(f"[launcher] {backend.name} 依赖清单有变化，重新安装")
+        print(f"[launcher] {backend.name} 依赖清单有变化，重建虚拟环境（保证依赖不多不少）...")
+        remove_backend_deps(backend)
     else:
         print(f"[launcher] {backend.name} 首次运行，创建独立虚拟环境...")
-        subprocess.check_call(
-            [sys.executable, "-m", "venv", os.path.join(backend.dir, VENV_DIR_NAME)],
-            **_no_window_kwargs(),
-        )
+    subprocess.check_call([sys.executable, "-m", "venv", venv_dir], **_no_window_kwargs())
     if not current:
         print(f"[launcher] 跳过 {backend.name}: 缺少 {backend.deps}")
     else:
@@ -326,22 +326,49 @@ def ensure_venv(backend: Backend) -> str:
     return py
 
 
+def node_deps_hash(backend: Backend) -> str:
+    """node 后端依赖指纹：package.json + package-lock.json 的 md5"""
+    h = hashlib.md5()
+    for name in ("package.json", "package-lock.json"):
+        try:
+            with open(os.path.join(backend.dir, name), "rb") as f:
+                h.update(f.read())
+        except OSError:
+            pass
+    return h.hexdigest()
+
+
 def ensure_node(backend: Backend) -> str:
-    """为 node 后端确保依赖就绪（node_modules 存在且安装标记齐全，否则 npm install）"""
+    """为 node 后端确保依赖就绪；依赖清单变化时删除 node_modules 重建（有 lockfile 用 npm ci，保证不多不少）"""
     node_modules = os.path.join(backend.dir, "node_modules")
     marker = os.path.join(node_modules, ".install_ok")
+    current = node_deps_hash(backend)
     if os.path.isfile(marker):
-        return "node"
+        try:
+            with open(marker, encoding="utf-8") as f:
+                if f.read().strip() == current:
+                    return "node"
+        except OSError:
+            pass
+    if os.path.isdir(node_modules):
+        root = os.path.realpath(backend.dir)
+        real = os.path.realpath(node_modules)
+        if os.path.commonpath([root, real]) == root:
+            print(f"[launcher] {backend.name} 依赖清单有变化，重建 node_modules...")
+            shutil.rmtree(real, ignore_errors=True)
     print(f"[launcher] {backend.name} 首次运行或依赖不完整，npm install...")
     npm = "npm.cmd" if os.name == "nt" else "npm"  # Windows 下 npm 是 .cmd 垫片
-    subprocess.check_call([npm, "install"], cwd=backend.dir, **_no_window_kwargs())
+    if os.path.isfile(os.path.join(backend.dir, "package-lock.json")):
+        subprocess.check_call([npm, "ci"], cwd=backend.dir, **_no_window_kwargs())
+    else:
+        subprocess.check_call([npm, "install"], cwd=backend.dir, **_no_window_kwargs())
     with open(marker, "w", encoding="utf-8") as f:
-        f.write("ok")
+        f.write(current)
     return "node"
 
 
 def deps_ready(backend: Backend) -> bool:
-    """后端依赖是否已就绪：python 后端看 venv 解释器与 .deps_ready 标记，node 后端看 node_modules/.install_ok"""
+    """后端依赖是否已就绪：python 后端看 venv 解释器与 .deps_ready 标记，node 后端看 node_modules/.install_ok 指纹"""
     if backend.type == "python":
         py = venv_python_path(backend.dir)
         marker = os.path.join(backend.dir, VENV_DIR_NAME, DEPS_MARKER)
@@ -352,7 +379,14 @@ def deps_ready(backend: Backend) -> bool:
                 return f.read().strip() == deps_hash(backend)
         except OSError:
             return False
-    return os.path.isfile(os.path.join(backend.dir, "node_modules", ".install_ok"))
+    marker = os.path.join(backend.dir, "node_modules", ".install_ok")
+    if not os.path.isfile(marker):
+        return False
+    try:
+        with open(marker, encoding="utf-8") as f:
+            return f.read().strip() == node_deps_hash(backend)
+    except OSError:
+        return False
 
 
 def process_memory(pid):

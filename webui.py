@@ -1009,9 +1009,14 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                     try:
                         res = update_project()
                         if res["updated"]:
-                            # 更新成功：后端一并重启，让新代码生效
+                            # 更新成功：先停全部 → 同步依赖（清单变化会重建，保证不多不少）→ 再启动
                             supervisor.stop(backends)
                             time.sleep(0.5)
+                            for b in backends:
+                                try:
+                                    setup_backend(b)
+                                except Exception as e:  # noqa: BLE001
+                                    print(f"[webui] 后端 {b.name} 依赖同步失败，跳过启动: {e}")
                             targets = [b for b in backends if deps_ready(b)]
                             for name in targets:
                                 if name in supervisor.state.setdefault("stopped", []):
@@ -1127,14 +1132,13 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         except Exception as e:  # noqa: BLE001
                             self._json({"ok": False, "message": str(e)})
                             return
-                        if not deps_ready(backend):
-                            try:
-                                setup_backend(backend)
-                            except Exception as e:  # noqa: BLE001
-                                self._json({"ok": False, "message": f"依赖安装失败: {e}"})
-                                return
                         if supervisor.is_running(name):
                             supervisor.stop([backend])
+                        try:
+                            setup_backend(backend)  # 始终同步依赖，清单变化会重建环境
+                        except Exception as e:  # noqa: BLE001
+                            self._json({"ok": False, "message": f"依赖同步失败: {e}"})
+                            return
                         if name in supervisor.state.get("stopped", []):
                             supervisor.state["stopped"].remove(name)
                             supervisor._save_state()

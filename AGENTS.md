@@ -44,8 +44,9 @@
 停止后端 → `git rm -r -f --ignore-unmatch backends/<name>`（暂存删除记录）→ 删除整个目录（程序 + 依赖）。注意：同仓库分发下 `git pull` 会让已删除目录回来，需把删除提交并推送才永久生效。
 
 ### 更新
-- 整体：「⬆ 更新」→ `update_project()`（git pull）→ 重启全部后端 → WebUI 2 秒后自动重启
-- 单个：卡片「⬆ 更新」→ `POST /api/update-backend/<name>` → git pull → 依赖缺失则重装 → 重启该后端
+- 整体：「⬆ 更新」→ `update_project()`（git pull）→ 先停全部 → 逐后端 `setup_backend()` 同步依赖 → 再启动依赖就绪的后端 → WebUI 2 秒后自动重启
+- 单个：卡片「⬆ 更新」→ `POST /api/update-backend/<name>` → git pull → 停止 → `setup_backend()` 同步依赖 → 重启该后端
+- 依赖精确同步：Python 依赖清单（`requirements.txt`）变化时删除并重建 venv；Node 有 `package-lock.json` 时用 `npm ci`（无则 `npm install`），保证依赖不多不少
 - 版本检查：`launcher.update_check()`（60 秒缓存）`git fetch` 后对比本地/远端 `backend.json` 的 `version`，返回 `{repo_update, backends:{name:{local,remote,available}}}`；失败返回空（前端静默）
 
 ### WebUI 启动 / CLI 自动安装
