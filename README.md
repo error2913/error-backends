@@ -68,6 +68,8 @@ python launcher.py service-uninstall    # 停止并移除服务
 | 目录 | 服务 | 默认端口 | 类型 |
 | --- | --- | --- | --- |
 | `ocr` | OCR 图片文字识别（tesseract.js） | 18699 | Node |
+| `redbag` | 红包图片生成（FastAPI） | 3000 | Python |
+| `run_shell` | Shell 命令执行并渲染输出为图片（仅 Linux） | 3011 | Python |
 
 每收录一个后端，在仓库根目录新建一个目录并放入 `backend.json` 即可被自动发现（无需改 launcher 代码）；未收录任何后端时 WebUI 显示空态提示。
 
@@ -89,6 +91,29 @@ Node + tesseract.js 的本地 OCR 服务，接收图片 URL、base64 或本地�
 - 注意：后端会按请求抓取任意 URL（SSRF 面），非必要请把监听 IP 设为 `127.0.0.1` 或设置访问 token
 
 > 所有后端统一支持：卡片「⚙ 配置」可改端口、token 与监听 IP；设置 token 后请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。
+
+### redbag — 红包图片生成
+
+FastAPI 后端，生成红包背景图（自定义金额、昵称、祝福语，随机背景），返回临时图片 URL（约 120 秒后自动清理）。
+
+- 默认端口 3000（Python / FastAPI）
+- 接口：`POST /send_redbag`，body `{user_id, user_name, amount, total, text?}`，返回 `{image_url}`（图片在 `/temp_images/<file>.png`）
+- 依赖：`fastapi`、`Pillow`、`requests`、`uvicorn`
+- 已接入 `ERROR_BACKEND_PORT` / `ERROR_BACKEND_HOST` / `ERROR_BACKEND_TOKEN`（token 非空时校验请求头）
+
+### run_shell — Shell 命令执行
+
+FastAPI 后端，执行 Shell 命令并把 stdout/stderr 渲染成图片返回 URL；支持长驻进程（create/check/del/list）。**仅支持 Linux**（依赖 `os.setsid` 进程组管理）。
+
+- 默认端口 3011（Python / FastAPI）
+- 接口（均需 token）：
+  - `GET /run?token=<token>&cmd=<命令>`：执行命令（10 秒超时，强杀进程树），返回 `{output_url, error_url, retcode}`
+  - `GET /create_process?token=<token>&cmd=<命令>`：创建长驻进程，返回 `{pid}`
+  - `GET /check_process?token=<token>&pid=<pid>`：查看进程输出（渲染为图片）
+  - `GET /del_process?token=<token>&pid=<pid>`：删除进程
+  - `GET /list_process?token=<token>`：列出进程
+- 依赖：`fastapi`、`Pillow`、`uvicorn`；字体（Sarasa Mono SC）随仓库提供
+- token：`ERROR_BACKEND_TOKEN` 非空时优先使用（也兼容请求头 `X-Token` / `Authorization: Bearer`）；未配置时回退到内置 `123456`
 
 ## 新增后端约定
 

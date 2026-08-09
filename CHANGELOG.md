@@ -21,6 +21,7 @@
 - WebUI 改为 token 登录页：打开只显示 token 输入框，登录后浏览器记住一年；Token 弹窗简化为直接输入新 token 保存生效
 - WebUI 右上角新增「🔄 重启 WebUI」按钮（等价 `errorbackend webui-restart`）：重启后重新加载后端清单，新增/修改后端或代码更新后无需手动重启进程
 - 修复「⬆ 更新」按钮未携带 WebUI token 导致 401（unauthorized）的问题，改用统一 api() 请求
+- 收录 `redbag`（红包图片生成，FastAPI，3000）与 `run_shell`（Shell 执行并渲染图片，仅 Linux，3011）两个后端，接入 `ERROR_BACKEND_*` 环境变量与 token 鉴权，资源路径改为脚本目录相对
 
 ## 0.1.0 - 2026-08-08
 
