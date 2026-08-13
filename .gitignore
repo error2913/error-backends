@@ -10,5 +10,6 @@ temp_images/
 generated_images/
 lang-data/
 cache/
+data/
 backends/
 installed/

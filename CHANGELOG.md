@@ -2,6 +2,13 @@
 
 标题格式为 `## <版本号>`，release 工作流按标签版本号读取对应段落作为发布说明；日常更新以「Unreleased」汇总，发版前改成版本号并补日期。
 
+## 0.2.0 - 2026-08-14
+
+- 移植全部后端：新增 `image-url-to-base64`（图片 URL 转 base64，46678）、`mcp-files-exec`（MCP 文件与受限命令执行，3910）、`md-html-render`（Markdown/HTML 渲染为图片，37632）、`stream-output`（流式输出中转 SSE/轮询，3010）、`usage-chart`（token 用量图表，3009）、`web-read`（网页 URL 读取与截图，46799），全部接入 `ERROR_BACKEND_*` 环境变量与 token 鉴权
+- 自定义配置支持 `{REPO_ROOT}` 模板与 `create_dir`：`backend.json` 的 `config` 默认值可写 `{REPO_ROOT}/...` 展开为仓库根目录；声明 `create_dir: true` 的路径在启动时自动创建（mcp-files-exec 沙箱工作目录默认 `data/mcp-files-exec`）
+- 全新安装保留程序包自带 `backend.json` 的 `config` schema：安装/更新写回清单时以程序包自带清单为准、注册表仅兜底，自定义配置项不会因注册表缺字段而丢失
+- 打包与更新排除 `data/`（后端运行数据目录，更新不覆盖、不删除）
+
 ## 0.1.0 - 2026-08-14
 
 - 后端程序不再随仓库分发：主分支只保留框架与注册表信息（`backends.json`），一条指令安装只装框架；后端源码移到独立 `shop` 分支（release 打包与下载回退源），release 工作流新增从该分支暂存源码的步骤

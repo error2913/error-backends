@@ -22,6 +22,12 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 | `redbag` | 红包图片生成（FastAPI，自定义金额/祝福语/随机背景） | python | 3000 | 1.0.0 |
 | `run_shell` | 执行 Shell 命令并将输出渲染为图片（仅 Linux） | python | 3011 | 1.1.1 |
 | `chart` | 排行榜图表图片生成（FastAPI，头像 + 排名列表） | python | 3003 | 1.0.0 |
+| `image-url-to-base64` | 图片 URL 转 base64（自动识别格式，静态 GIF 转 PNG） | python | 46678 | 1.0.0 |
+| `mcp-files-exec` | MCP：AI 读写文件与执行受限命令（沙箱 + 命令拦截 + 审计日志） | python | 3910 | 1.0.1 |
+| `md-html-render` | Markdown/HTML 渲染为图片（MCP，支持 LaTeX 与多主题） | node | 37632 | 1.0.0 |
+| `stream-output` | 流式输出中转（SSE 分块/轮询） | python | 3010 | 1.0.0 |
+| `usage-chart` | token 用量图表（年/月视图） | python | 3009 | 1.0.0 |
+| `web-read` | 网页 URL 内容读取与截图（MCP） | node | 46799 | 1.0.0 |
 
 > 本 README 只做索引；每个后端的详细说明见 `shop` 分支的 `backends/<name>/README.md`（若存在）。
 
@@ -65,6 +71,7 @@ install_cli.py         安装 errorbackend 命令到 PATH
 backends.json          后端注册表索引（名称/介绍/版本/下载源/文件清单）
 backends/<name>/       后端程序缓存（点安装/更新时下载解压到这里，gitignore；源码在独立 shop 分支）
 installed/<name>/      已安装后端运行目录（gitignore，安装时下载/复制程序，卸载即删）
+data/                  后端数据目录（如 mcp-files-exec 沙箱根目录，gitignore）
 assets/                WebUI 图标
 ```
 
