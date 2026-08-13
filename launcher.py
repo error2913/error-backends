@@ -38,6 +38,7 @@ MANIFEST_FILE = "backend.json"
 REGISTRY_FILE = "backends.json"  # 后端注册表（索引：名称/介绍/版本/下载源）
 GITHUB_REPO = "error2913/error-backends"  # 上游仓库（更新源）
 RAW_BASE = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
+RAW_SHOP_BASE = f"https://raw.githubusercontent.com/{GITHUB_REPO}/shop"  # 后端源码分支（安装/更新回退下载源）
 RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 DEFAULT_LOG_DIR = "logs"
 RUNTIME_FILE = ".runtime.json"
@@ -897,7 +898,7 @@ def download_backend_files(entry: dict, backend_dir: str) -> None:
     """按注册表从远端下载后端程序文件到 backends/<name>；远端不可用时回退到本地同目录文件"""
     name = entry.get("name", "")
     source = (entry.get("source") or "").rstrip("/") or (
-        f"{RAW_BASE}/backends/{name}"
+        f"{RAW_SHOP_BASE}/backends/{name}"
     )
     files = entry.get("files") or []
     os.makedirs(backend_dir, exist_ok=True)

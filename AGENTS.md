@@ -6,7 +6,7 @@
 
 海豹插件配套的后端管理框架，采用**独立分发**模式：
 
-- 仓库维护注册表索引 `backends.json` 与程序商店 `backends/<name>/`（git 保留，永不删除）
+- 仓库 main 分支维护框架与注册表索引 `backends.json`；后端源码在独立 `shop` 分支（release 打包与下载回退用），不随主分支分发
 - 后端程序按需安装：缓存 `backends/<name>` 版本与注册表一致时复制到运行目录 `installed/<name>/`（gitignore），否则按注册表版本从 GitHub release 独立包下载，失败自动回退缓存/远端文件
 - 依赖随安装/卸载/更新生命周期自动管理，不提供手动装/卸依赖的入口
 - WebUI 管理界面（`webui.py`，纯标准库）+ 命令行工具（`errorbackend`）+ 进程守护 + 版本更新检查
@@ -22,7 +22,7 @@
 | `errorbackend.py` | 命令行工具（复用 launcher 逻辑） |
 | `install_cli.py` | 安装 `errorbackend` 到 PATH（launcher 每次启动自动调用，幂等） |
 | `backends.json` | 注册表索引：`name/description/type/entry/deps/port/version/source/files` |
-| `backends/<name>/` | 后端程序包商店 / 下载缓存（git 保留永不删除；含 `backend.json` 清单） |
+| `backends/<name>/` | 后端程序下载缓存（gitignore；源码在 `shop` 分支，运行时下载/更新解压到这里） |
 | `CHANGELOG.md` / `VERSION` | 更新日志 / 版本号（release 由 tag 写入） |
 | `launcher.json` | 全局配置：`auto_restart`、`restart_backoff_seconds`、`log_dir` |
 
@@ -38,19 +38,22 @@
 `launcher.discover_backends()` 只扫描 `backends/*/backend.json`（`PACKAGES_DIR`）。WebUI 的 `/api/backends` 会把注册表（`load_registry()`）里**未安装**的后端也并进来（`installed: false`），卡片显示「安装」。
 
 ### 安装（`install_backend` / WebUI「安装」/ `install-backend` 命令）
-缓存 `backends/<name>` 的 `backend.json` 清单与注册表条目合并（缓存清单优先，注册表兜底 version/source/files 等字段）→ 缓存版本与注册表一致时按 `files` 清单复制到 `installed/<name>/`；否则按注册表版本从 release 独立包（`error-backends-<后端名>-<版本>.zip`）下载解压到 `installed/<name>/`，失败回退缓存/按 `source` raw URL 逐文件下载 → 始终用合并后的元数据写回 `backend.json` → `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
+缓存 `backends/<name>` 的 `backend.json` 清单与注册表条目合并（缓存清单优先，注册表兜底 version/source/files 等字段）→ 缓存版本与注册表一致时按 `files` 清单复制到 `installed/<name>/`；否则按注册表版本从 release 独立包（`error-backends-<后端名>-<版本>.zip`）下载解压到 `installed/<name>/`，失败回退缓存/按 `source`（默认 `shop` 分支 raw URL）逐文件下载 → 始终用合并后的元数据写回 `backend.json` → `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
 
 ### 卸载（`remove_backend_dir` / WebUI「卸载」/ `uninstall-backend` 命令）
-停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**下载缓存与 git 商店 `backends/<name>` 永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
+停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**下载缓存与 `shop` 分支源码永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
 
 ### 更新
 - 更新不依赖 git：`update_project()` 查询 GitHub 最新 release（`_latest_release()`），tag 高于本地 `read_version()` 才下载本体包 `error-backends-<版本>.zip`，解压覆盖仓库根目录（`_extract_update_zip()` 跳过 `installed/`、`logs/`、`backends/`、`dist/`、`.git/`、`.runtime.json`）；无新版本返回 `updated=False`（前端弹「没有可以更新的」）
-- 单个：卡片「⬆ 更新」→ `POST /api/update-backend/<name>` → `update_backend(name)` 按注册表版本找该后端独立 release 包（`error-backends-<后端名>-<版本>.zip`）下载解压覆盖商店 `backends/<名称>/`，再走 `install_backend()` 重装到 `installed/` 并同步依赖；资产缺失时回退按 `source` raw URL 逐文件下载
+- 单个：卡片「⬆ 更新」→ `POST /api/update-backend/<name>` → `update_backend(name)` 按注册表版本找该后端独立 release 包（`error-backends-<后端名>-<版本>.zip`）下载解压覆盖缓存 `backends/<名称>/`，再走 `install_backend()` 重装到 `installed/` 并同步依赖；资产缺失时回退按 `source`（`shop` 分支）raw URL 逐文件下载
 - 依赖精确同步：Python 依赖清单（`requirements.txt`）变化时删除并重建 venv；Node 有 `package-lock.json` 时用 `npm ci`（无则 `npm install`），保证依赖不多不少
 - 版本检查：`launcher.update_check()`（60 秒缓存）对比 GitHub 最新 release tag 与远端 `backends.json` 注册表版本（`_remote_registry()`），返回 `{repo_update, backends:{name:{local,remote,available}}}`；失败返回空（前端静默）
 
 ### WebUI 启动 / CLI 自动安装
 `main()` 最先 `ensure_cli_installed()`（写 shim + PATH，幂等）→ `cleanup_legacy_backend_dirs()`（升级清理：git 已不跟踪的旧版顶层后端目录整目录删除，防残留）→ plain run 自动生成 WebUI 端口/token 并后台启动后退出。自动开浏览器仅限 Windows 或显式设置 `$BROWSER` 的 Linux/macOS。
+
+### 发布
+Git tag `v*` 触发 `.github/workflows/release.yml`：先 checkout `shop` 分支把 `backends/` 源码暂存进工作区（主分支不含后端程序）→ tag 去掉 `v` 写进 VERSION → `launcher.py package` 生成本体包 `dist/error-backends-<version>.zip/.tar.gz`，并给每个后端按 `backends.json` 注册表版本生成独立包 `dist/error-backends-<后端名>-<版本>.zip/.tar.gz` → 全部 `dist/*` 上传为 release 资产 → 从 CHANGELOG.md 按版本号提取段落作为 release 描述。发版前记得：后端源码改动提交到 `shop` 分支、注册表版本等元数据同步到 main 的 `backends.json`、CHANGELOG 写版本段落。
 
 ## WebUI API
 
@@ -63,7 +66,7 @@
 - `POST /api/uninstall/<name>`：停止 + 删除程序与依赖
 - `POST /api/start-all|stop-all|restart-all|start/<name>|stop/<name>|restart/<name>`
 - 启动前探测端口占用：端口被未记录进程监听时跳过启动并返回 `failed`/`warning`；「启动全部 / 重启全部」返回失败列表
-- `POST /api/update-backend/<name>`：单独更新后端（下载该后端独立 release 包覆盖商店并重装程序与依赖）
+- `POST /api/update-backend/<name>`：单独更新后端（下载该后端独立 release 包覆盖缓存并重装程序与依赖）
 - `POST /api/update`：整体更新（成功后重启全部后端）
 - `GET /api/webui-token` / `POST /api/webui-token`（`{token}` 或 `{reset:true}`）、`POST /api/webui-restart`
 - `GET /api/logs/<name>`、`GET /api/setup-log/<name>`（安装/卸载日志轮询）
@@ -72,7 +75,7 @@
 
 - WebUI 保持纯标准库；后端依赖只在各自 venv/node_modules，不要手动装
 - 改 `webui.py` 的 `PAGE`（内嵌 HTML/JS）后，必须用 `python -c "import webui; ..."` 取出 PAGE 并 `node --check` 验证 JS；PAGE 是 Python 字符串，JS 里要输出的 `\n` 必须写成 `\\n`（单反斜杠会被 Python 转成真实换行、直接弄坏页面脚本）
-- 新增后端 = `backends/<name>/`（含 `backend.json`，必须有 `version`）+ `backends.json` 注册表条目（`files` 清单要与包目录同步）
+- 新增后端 = `shop` 分支的 `backends/<name>/`（含 `backend.json`，必须有 `version`）+ main 的 `backends.json` 注册表条目（`files` 清单要与包目录同步）；本地开发缓存目录同样放 `backends/<name>/`（gitignore）
 - 自定义配置：`backend.json` 的 `config` 声明 `{key: {label, type, default, env}}`，`launcher.Supervisor.spawn` 会把保存值（或默认值）以 `env` 注入；改配置后需重启后端生效
 - UI 不提供手动「安装依赖 / 删除依赖」入口，依赖只随安装/卸载/更新
 - 后台子进程 Windows 下必须带 `CREATE_NO_WINDOW`：统一用 `launcher._no_window_kwargs()`；新增 subprocess 调用后 `rg -n "subprocess"` 排查

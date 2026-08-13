@@ -2,7 +2,7 @@
 
 海豹插件配套的后端管理框架：一个 launcher 统一管理若干**独立分发**的 HTTP 后端服务，提供 WebUI 管理界面、命令行工具（`errorbackend`）、按需下载安装、进程守护与版本更新。
 
-后端程序独立分发：仓库维护注册表索引（[backends.json](backends.json)）与程序商店（`backends/<name>/`，git 保留永不删除）；每个后端在 release 中有独立包、各自版本控制。点「安装」才下载程序：缓存版本与注册表一致时直接从商店复制，否则按注册表版本从 GitHub release 下载独立包到运行目录 `installed/<name>/`（gitignore），失败自动回退缓存/远端文件；依赖随**安装 / 卸载 / 更新**生命周期自动处理，不提供手动装/卸依赖的入口。初始状态 `installed/` 为空，WebUI 只展示后端资料卡片与「安装」按钮。
+后端程序独立分发：一条指令安装（git clone + `python launcher.py`）只装框架与后端注册表索引（[backends.json](backends.json)），**不含后端程序**；后端源码在独立 `shop` 分支（release 打包与下载回退用），每个后端在 release 中有独立包、各自版本控制。点「安装」才下载程序：缓存 `backends/<name>` 版本与注册表一致时直接复制，否则按注册表版本从 GitHub release 下载独立包到运行目录 `installed/<name>/`（gitignore），失败自动回退缓存/远端文件；依赖随**安装 / 卸载 / 更新**生命周期自动处理，不提供手动装/卸依赖的入口。初始状态 `installed/` 为空，WebUI 只展示后端资料卡片与「安装」按钮。
 
 ## 快速开始
 
@@ -23,7 +23,7 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 | `run_shell` | 执行 Shell 命令并将输出渲染为图片（仅 Linux） | python | 3011 | 1.1.1 |
 | `chart` | 排行榜图表图片生成（FastAPI，头像 + 排名列表） | python | 3003 | 1.0.0 |
 
-> 本 README 只做索引；每个后端的详细说明见对应 `backends/<name>/README.md`（若存在）。
+> 本 README 只做索引；每个后端的详细说明见 `shop` 分支的 `backends/<name>/README.md`（若存在）。
 
 ## 使用方式
 
@@ -63,7 +63,7 @@ webui.py               Web 管理界面（纯 Python 标准库）
 errorbackend.py        命令行管理工具
 install_cli.py         安装 errorbackend 命令到 PATH
 backends.json          后端注册表索引（名称/介绍/版本/下载源/文件清单）
-backends/<name>/       后端程序包商店 / 下载缓存（git 保留，永不删除）
+backends/<name>/       后端程序缓存（点安装/更新时下载解压到这里，gitignore；源码在独立 shop 分支）
 installed/<name>/      已安装后端运行目录（gitignore，安装时下载/复制程序，卸载即删）
 assets/                WebUI 图标
 ```
@@ -75,7 +75,7 @@ assets/                WebUI 图标
 ## 更新
 
 - **本体更新**：WebUI 右上角「⬆ 更新」或 `errorbackend update`。检测 GitHub 最新 release（`error-backends-<版本>.zip`），比本地版本新就下载并直接覆盖仓库文件，不依赖 git——本地文件有改动也不会阻塞更新；更新成功后自动重启 WebUI 使新代码生效。
-- **后端更新**：每个后端在 release 里有独立包（`error-backends-<后端名>-<版本>.zip`），版本各自独立记录在 `backends.json`。注册表版本高于本地版本时，卡片出现「⬆ 更新」按钮，点击只下载对应后端独立包并重装程序与依赖，不影响其他后端；或 `uninstall-backend` 后重新 `install-backend`。
+- **后端更新**：每个后端在 release 里有独立包（`error-backends-<后端名>-<版本>.zip`），版本各自独立记录在 `backends.json`。注册表版本高于本地版本时，卡片出现「⬆ 更新」按钮，点击只下载对应后端独立包覆盖缓存并重装程序与依赖，不影响其他后端；或 `uninstall-backend` 后重新 `install-backend`。
 - **升级残留**：旧版（后端位于仓库顶层）升级到商店模型后，顶层目录里的 `node_modules/`、`.venv/`、缓存等未跟踪残留会自动清理——仅 git 部署时 launcher 启动会检测并整目录删除「git 已不再跟踪」的旧后端目录（`ocr` / `redbag` / `run_shell` / `chart`），商店 `backends/`、`installed/`、`logs/` 与运行配置不受影响。
 
 ## 命令行（errorbackend）
@@ -92,14 +92,14 @@ errorbackend update                        从 GitHub 更新到最新版
 errorbackend webui / webui-stop / webui-restart / webui-port / webui-host / webui-token
 ```
 
-## 新增后端（注册表 + 包目录）
+## 新增后端（shop 分支源码 + main 注册表）
 
-1. 在 `backends/<name>/` 放置程序文件，含 `backend.json`（`name` / `description` / `type` / `entry` / `deps` / `port` / `version`）
-2. 在根目录 `backends.json` 注册表中添加条目：
-   - `source`：程序文件下载根地址（默认 `https://raw.githubusercontent.com/error2913/error-backends/main/backends/<name>`）
+1. 在 `shop` 分支的 `backends/<name>/` 放置程序文件，含 `backend.json`（`name` / `description` / `type` / `entry` / `deps` / `port` / `version`）
+2. 在 main 分支根目录 `backends.json` 注册表中添加条目：
+   - `source`：程序文件下载根地址（默认 `https://raw.githubusercontent.com/error2913/error-backends/shop/backends/<name>`）
    - `files`：需下载的文件清单（相对路径，须与包目录保持一致）
    - `config`（可选）：自定义配置 schema，`{key: {label, type: text|number, default, env}}`——WebUI 配置弹窗渲染，保存后经 launcher 以环境变量 `env` 注入后端进程
-3. 发布到远端后，WebUI 即出现该后端卡片，可「安装」
+3. 后端源码改动提交到 `shop` 分支、注册表版本等元数据同步到 main 的 `backends.json`；发布 release 后 WebUI 即出现该后端卡片，可「安装」
 
 ## 来源与许可
 

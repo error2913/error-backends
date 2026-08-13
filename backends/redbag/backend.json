@@ -1,9 +1,0 @@
-{
-  "name": "redbag",
-  "description": "红包图片生成（FastAPI，自定义金额/祝福语/随机背景）",
-  "type": "python",
-  "entry": "backend/main.py",
-  "deps": "backend/requirements.txt",
-  "port": 3000,
-  "version": "1.0.0"
-}

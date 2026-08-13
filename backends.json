@@ -22,7 +22,7 @@
           "env": "OCR_THREADS"
         }
       },
-      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/ocr",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/shop/backends/ocr",
       "files": ["backend.json", "ppocr_ncnn.py", "README.md", "requirements.txt", "server.py"]
     },
     {
@@ -33,7 +33,7 @@
       "deps": "backend/requirements.txt",
       "port": 3000,
       "version": "1.0.0",
-      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/redbag",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/shop/backends/redbag",
       "files": [
         "backend.json",
         "redbag.js",
@@ -56,7 +56,7 @@
       "deps": "backend/requirements.txt",
       "port": 3011,
       "version": "1.1.1",
-      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/run_shell",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/shop/backends/run_shell",
       "files": [
         "backend.json",
         "run_shell.js",
@@ -78,7 +78,7 @@
       "deps": "requirements.txt",
       "port": 3003,
       "version": "1.0.0",
-      "source": "https://raw.githubusercontent.com/error2913/error-backends/main/backends/chart",
+      "source": "https://raw.githubusercontent.com/error2913/error-backends/shop/backends/chart",
       "files": [
         "backend.json",
         "main.py",
