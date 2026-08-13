@@ -18,6 +18,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
@@ -375,6 +376,20 @@ def node_deps_hash(backend: Backend) -> str:
     return h.hexdigest()
 
 
+def port_in_use(port: int, host: str = "0.0.0.0") -> bool:
+    """端口是否已有进程在监听（用于启动前检测未记录的残留进程）"""
+    if not port:
+        return False
+    probe = host or "127.0.0.1"
+    if probe in ("0.0.0.0", "::"):
+        probe = "127.0.0.1"
+    try:
+        with socket.create_connection((probe, int(port)), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
 def ensure_node(backend: Backend) -> str:
     """为 node 后端确保依赖就绪；依赖清单变化时删除 node_modules 重建（有 lockfile 用 npm ci，保证不多不少）"""
     node_modules = os.path.join(backend.dir, "node_modules")
@@ -399,8 +414,10 @@ def ensure_node(backend: Backend) -> str:
         subprocess.check_call([npm, "ci"], cwd=backend.dir, **_no_window_kwargs())
     else:
         subprocess.check_call([npm, "install"], cwd=backend.dir, **_no_window_kwargs())
+    # npm install 可能生成/更新 package-lock.json，指纹以安装后的实际文件为准；
+    # 否则 deps_ready 每次都会发现漂移，导致“装好了却仍显示未安装”
     with open(marker, "w", encoding="utf-8") as f:
-        f.write(current)
+        f.write(node_deps_hash(backend))
     return "node"
 
 
@@ -667,8 +684,24 @@ class Supervisor:
             return {}
 
     def _save_state(self) -> None:
+        data = json.dumps(self.state, ensure_ascii=False, indent=2)
+        tmp = self.state_file + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(data)
+        # 原子替换，避免崩溃留下半写文件；WebUI 刷新会短暂持有读句柄，
+        # Windows 下 replace 可能被占用文件拒绝，重试几次后兜底直接覆盖写
+        for _ in range(20):
+            try:
+                os.replace(tmp, self.state_file)
+                return
+            except OSError:
+                time.sleep(0.05)
         with open(self.state_file, "w", encoding="utf-8") as f:
-            json.dump(self.state, f, ensure_ascii=False, indent=2)
+            f.write(data)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
     def _reload_state(self) -> None:
         """读写前重载 state 文件，避免覆盖其他进程（stop/status）写入的内容"""
@@ -716,8 +749,15 @@ class Supervisor:
     def spawn(self, backend: Backend) -> bool:
         self._reload_state()
         if self.is_running(backend.name):
-            return False
+            return True
         cfg = backend_config(backend)
+        # 端口已被监听但 supervisor 无记录：旧会话/升级残留的孤儿进程，跳过启动并明确提示
+        if port_in_use(cfg["port"], cfg["host"]):
+            print(
+                f"[launcher] {backend.name} 端口 {cfg['port']} 已被未记录的进程占用，跳过启动"
+                "（可能是旧会话残留，请先结束占用该端口的进程再重试）"
+            )
+            return False
         log_path = os.path.join(self.log_dir, f"{backend.name}.log")
         log_file = open(log_path, "a", encoding="utf-8")
         log_file.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 启动 {backend.name} (host {cfg['host']}, port {cfg['port']}) =====\n")
@@ -790,11 +830,15 @@ class Supervisor:
                 return
             self.spawn(backend)
 
-    def start(self, backends: list) -> None:
+    def start(self, backends: list) -> list:
+        """启动后端（已在运行视为成功）；返回因端口被未记录进程占用而启动失败的名称列表"""
+        failed = []
         for backend in backends:
             self.stop_flags[backend.name] = threading.Event()
-            self.spawn(backend)
+            if not self.spawn(backend):
+                failed.append(backend.name)
             threading.Thread(target=self._monitor, args=(backend,), daemon=True).start()
+        return failed
 
     def stop(self, backends: list) -> None:
         for backend in backends:
@@ -879,8 +923,53 @@ def download_backend_files(entry: dict, backend_dir: str) -> None:
             raise RuntimeError(f"下载后端文件失败且本地无副本: {name}/{rel}")
 
 
+def _extract_backend_package(zip_path: str, dest_dir: str) -> None:
+    """把后端独立包（zip 内路径为 backends/<name>/...）解压到 dest_dir（installed/<name>）"""
+    base = os.path.realpath(dest_dir)
+    with zipfile.ZipFile(zip_path) as zf:
+        for member in zf.infolist():
+            rel = member.filename.replace("\\", "/").lstrip("/")
+            parts = rel.split("/")
+            if len(parts) >= 3 and parts[0] == "backends":
+                rel = "/".join(parts[2:])
+            if not rel or rel.endswith("/") or os.path.normpath(rel).startswith(".."):
+                continue
+            dest = os.path.realpath(os.path.join(base, *rel.split("/")))
+            if dest != base and not dest.startswith(base + os.sep):
+                continue  # 防 zip 路径穿越
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with zf.open(member) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+
+
+def _download_backend_package(entry: dict, dest_dir: str, timeout: int = 120) -> None:
+    """按注册表版本从 GitHub 最新 release 下载后端独立包并解压到 dest_dir"""
+    name = entry.get("name", "")
+    version = str(entry.get("version", "") or "")
+    if not name or not version:
+        raise RuntimeError("注册表缺少名称/版本，无法按独立包下载")
+    asset = f"error-backends-{name}-{version}.zip"
+    url = _release_asset(asset)
+    if not url:
+        raise RuntimeError(f"release 中未找到 {asset}")
+    tmp_path = ""
+    try:
+        fd, tmp_path = tempfile.mkstemp(prefix="eb-install-", suffix=".zip")
+        os.close(fd)
+        with _http_open(url, timeout=timeout) as resp, open(tmp_path, "wb") as f:
+            shutil.copyfileobj(resp, f, 1024 * 1024)
+        _extract_backend_package(tmp_path, dest_dir)
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
 def install_backend(name: str) -> Backend:
-    """安装后端：从商店 backends/<name> 选择性复制到 installed/<name>（商店缺文件时从远端下载）→ 安装依赖；返回 Backend"""
+    """安装后端：优先按注册表版本从 release 独立包下载程序到 installed/<name>
+    （缓存版本一致时直接复制；独立包失败时回退缓存/远端文件），然后安装依赖；返回 Backend"""
     entry = None
     registry_entry_data = None
     try:
@@ -889,7 +978,7 @@ def install_backend(name: str) -> Backend:
         pass
     shop_manifest = os.path.join(PACKAGES_DIR, name, MANIFEST_FILE)
     if os.path.isfile(shop_manifest):
-        # 优先用商店里后端的自带清单（可能是独立包更新后的最新文件清单）
+        # 优先用缓存里后端的自带清单（可能是独立包更新后的最新文件清单）
         try:
             with open(shop_manifest, encoding="utf-8") as f:
                 candidate = json.load(f)
@@ -900,15 +989,18 @@ def install_backend(name: str) -> Backend:
     if entry is None:
         entry = dict(registry_entry_data or {})
     if registry_entry_data:
-        # 注册表作为兜底元数据（商店清单可能缺 version/source 等字段）
+        # 注册表作为兜底元数据（缓存清单可能缺 version/source 等字段）
         for k in ("version", "description", "source", "files"):
             if not entry.get(k) and registry_entry_data.get(k):
                 entry = {**entry, k: registry_entry_data[k]}
     backend_dir = os.path.join(INSTALLED_DIR, name)
     source_dir = os.path.join(PACKAGES_DIR, name)
     files = entry.get("files") or []
-    copied = 0
-    if os.path.isdir(source_dir):
+
+    def _copy_from_cache() -> int:
+        copied = 0
+        if not os.path.isdir(source_dir):
+            return 0
         for rel in files:
             rel = rel.replace("\\", "/").lstrip("/")
             if not rel or os.path.normpath(rel).startswith(".."):
@@ -919,9 +1011,41 @@ def install_backend(name: str) -> Backend:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
                 copied += 1
+        return copied
+
+    copied = 0
+    registry_version = str((registry_entry_data or {}).get("version", "") or "")
+    # 缓存与注册表版本一致时直接复制（更新流程会先把新版解压进缓存），否则按 release 独立包下载
+    cache_version = ""
+    if os.path.isfile(shop_manifest):
+        try:
+            with open(shop_manifest, encoding="utf-8") as f:
+                cache_version = str((json.load(f) or {}).get("version", "") or "")
+        except (OSError, ValueError):
+            pass
+    if cache_version and (not registry_version or cache_version == registry_version):
+        copied = _copy_from_cache()
     if copied < len(files):
-        download_backend_files(entry, backend_dir)
-    # 始终用合并后的元数据写回清单（商店/远端清单可能缺 version 等字段）
+        try:
+            os.makedirs(backend_dir, exist_ok=True)
+            _download_backend_package(entry, backend_dir)
+            missing = [
+                rel
+                for rel in files
+                if not os.path.isfile(
+                    os.path.join(backend_dir, *rel.replace("\\", "/").lstrip("/").split("/"))
+                )
+            ]
+            if missing:
+                raise RuntimeError(f"独立包缺少文件: {', '.join(missing)}")
+            copied = len(files)
+        except Exception as e:  # noqa: BLE001
+            print(f"[launcher] {name} 独立包下载失败，回退缓存/远端文件: {e}")
+            copied = _copy_from_cache()
+            if copied < len(files):
+                download_backend_files(entry, backend_dir)
+                copied = len(files)
+    # 始终用合并后的元数据写回清单（缓存/远端清单可能缺 version 等字段）
     with open(os.path.join(backend_dir, MANIFEST_FILE), "w", encoding="utf-8") as f:
         json.dump(entry, f, ensure_ascii=False, indent=2)
     backend = Backend(
@@ -1742,7 +1866,9 @@ def main() -> None:
             if backend.name in supervisor.state.setdefault("stopped", []):
                 supervisor.state["stopped"].remove(backend.name)  # 手动启动清除停止标记
         supervisor._save_state()
-        supervisor.start(targets)
+        failed = supervisor.start(targets)
+        if failed:
+            print(f"[launcher] 端口被占用，跳过: {', '.join(failed)}（请先结束占用进程）")
         print("后端已启动，按 Ctrl+C 停止全部")
         try:
             while True:

@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+- 安装改为按注册表版本从 GitHub release 独立包下载到 `installed/<name>`（缓存 `backends/<name>` 版本与注册表一致时直接复制），独立包缺失/失败自动回退缓存或远端文件；不再依赖商店缺文件补全
+- 修复 Node 后端安装后指纹漂移：`npm install` 以安装后的实际依赖文件重算指纹，不再出现「装完仍显示安装按钮」或依赖反复重建
+- 启动前先探测端口占用：端口已被未记录进程监听时跳过启动并明确提示；「启动全部 / 重启全部」与命令行 `start` 返回失败列表
+- `logs/state.json` 改为原子写入（失败重试后兜底覆盖），避免异常退出留下半写文件
+- 「安装全部」改为并行安装：同时触发所有未安装后端的安装，弹窗不再被互相覆盖，汇总提示失败项
 - 框架更新改为 GitHub release 化：本体更新不再依赖 git——`update_project()` 查询 GitHub 最新 release（`_latest_release()`），tag 高于本地版本才下载 `error-backends-<版本>.zip` 解压覆盖仓库根目录（跳过 `installed/`、`logs/`、`backends/`、`dist/`、`.git/`、`.runtime.json`）；每个后端在 release 里有独立包（`error-backends-<名称>-<版本>.zip`）并各自版本控制，卡片「⬆ 更新」走 `update_backend(name)` 只下载对应后端包覆盖商店并重装依赖；打包改为本体 + 每后端独立包；版本检查对比 release tag 与远端 `backends.json` 注册表；升级清理仅 git 部署时执行
 - ocr 后端引擎更换：tesseract.js → **PP-OCRv6 + ncnn**（tiny_det + small_rec，
   中英日多语），后端由 Node 改为 Python（Flask + ncnn + OpenCV + pyclipper），

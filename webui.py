@@ -503,20 +503,24 @@ function renderInstallAll(list){
 async function pollInstall(name){
   while (true){
     const j = await api('/api/setup-log/' + name);
-    const pre = document.getElementById('logBody');
-    pre.textContent = j.log || '(暂无日志)';
-    pre.scrollTop = pre.scrollHeight;
+    // 只有当前正在查看该后端的安装日志时才刷新弹窗，避免并行安装时互相覆盖
+    if (current === name && currentType === 'setup'){
+      const pre = document.getElementById('logBody');
+      pre.textContent = j.log || '(暂无日志)';
+      pre.scrollTop = pre.scrollHeight;
+    }
     if (!j.running){
-      toast(j.failed ? '安装失败：' + name : '安装完成：' + name);
-      return;
+      if (current === name && currentType === 'setup') toast(j.failed ? '安装失败：' + name : '安装完成：' + name);
+      return j.failed;
     }
     await new Promise(r => setTimeout(r, 1200));
   }
 }
 async function run(name, act){
   try {
-    await api('/api/' + act + '/' + name, 'POST');
-    toast(act==='start' ? '已启动：' + name : '已停止：' + name);
+    const j = await api('/api/' + act + '/' + name, 'POST');
+    if (j.warning) toast(j.warning, 5000);
+    else toast(act==='start' ? '已启动：' + name : '已停止：' + name);
   } catch(e){
     if (!(e && e.message === '需要 WebUI token')) showAlert((act==='start' ? '启动' : '停止') + '失败：' + e.message);
   }
@@ -537,7 +541,7 @@ async function updateBackend(name){
   refresh();
 }
 async function uninstallBackend(name){
-  if (!confirm('确定卸载后端「' + name + '」吗？会停止进程并删除已安装的程序与依赖（git 商店里的包不受影响）。')) return;
+  if (!confirm('确定卸载后端「' + name + '」吗？会停止进程并删除 installed/ 下的程序与依赖（下载缓存不受影响）。')) return;
   deleting.add(name);
   refresh();
   showInstallLog(name);
@@ -566,6 +570,8 @@ async function allAct(act){
   const j = await api('/api/' + act + '-all', 'POST');
   if ((act === 'start' || act === 'restart') && j.started && j.started.length === 0 && j.skipped && j.skipped.length){
     showAlert('后端均未安装，已全部跳过。\\n可先点右上角「安装全部」，装完后再启动。');
+  } else if (j.failed && j.failed.length){
+    toast((act==='start' ? '已启动' : '已重启') + '全部，' + j.failed.length + ' 个端口被占用未启动：' + j.failed.join('、'));
   } else {
     toast(act==='start' ? '已启动全部' : act==='restart' ? '已重启全部' : '已停止全部');
   }
@@ -629,18 +635,21 @@ async function installAllNow(){
   allDone = 0;
   if (!allTargets.length) return;
   allInstalling = true;
-  showInstallLog('全部');
+  // 同时触发所有未安装后端的安装，相当于同时点击每个卡片的「安装」按钮
+  allTargets.forEach(n => installing.add(n));
   refresh();
   try {
-    for (const name of allTargets){
-      document.getElementById('logTitle').textContent = '安装全部 (' + allDone + '/' + allTargets.length + ')：' + name;
-      document.getElementById('logBody').textContent = '(等待安装日志...)';
+    const results = await Promise.all(allTargets.map(async name => {
       await api('/api/install/' + name, 'POST');
-      await pollInstall(name);
+      const failed = await pollInstall(name);
       allDone++;
-    }
-    toast('全部安装完成');
+      return {name, failed};
+    }));
+    const failed = results.filter(r => r.failed).map(r => r.name);
+    if (failed.length) toast(failed.length + ' 个安装失败：' + failed.join('、'));
+    else toast('全部安装完成');
   } catch(e){}
+  allTargets.forEach(n => installing.delete(n));
   allInstalling = false;
   refresh();
 }
@@ -1019,12 +1028,13 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                 if path == "/api/start-all":
                     targets = [b for b in backends if deps_ready(b)]
                     skipped = [b.name for b in backends if not deps_ready(b)]
-                    supervisor.start(targets)
+                    failed = supervisor.start(targets)
                     self._json({
                         "ok": True,
                         "message": "started",
-                        "started": [b.name for b in targets],
+                        "started": [b.name for b in targets if b.name not in failed],
                         "skipped": skipped,
+                        "failed": failed,
                     })
                     return
                 if path == "/api/restart-all":
@@ -1036,12 +1046,13 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         if name in supervisor.state.setdefault("stopped", []):
                             supervisor.state["stopped"].remove(name)
                     supervisor._save_state()
-                    supervisor.start(targets)
+                    failed = supervisor.start(targets)
                     self._json({
                         "ok": True,
                         "message": "restarted",
-                        "started": [b.name for b in targets],
+                        "started": [b.name for b in targets if b.name not in failed],
                         "skipped": skipped,
+                        "failed": failed,
                     })
                     return
                 if path == "/api/stop-all":
@@ -1157,8 +1168,11 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         if name in supervisor.state.get("stopped", []):
                             supervisor.state["stopped"].remove(name)
                             supervisor._save_state()
-                        supervisor.start([backend])
-                        self._json({"ok": True})
+                        failed = supervisor.start([backend])
+                        warning = None
+                        if failed:
+                            warning = f"{name} 端口被未记录的进程占用，未启动（请先结束占用进程）"
+                        self._json({"ok": True, "warning": warning})
                         return
                     if action == "stop":
                         supervisor.stop([backend])

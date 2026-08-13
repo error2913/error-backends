@@ -7,7 +7,7 @@
 海豹插件配套的后端管理框架，采用**独立分发**模式：
 
 - 仓库维护注册表索引 `backends.json` 与程序商店 `backends/<name>/`（git 保留，永不删除）
-- 后端程序按需从商店复制到运行目录 `installed/<name>/`（gitignore）；商店缺文件时从远端拉取
+- 后端程序按需安装：缓存 `backends/<name>` 版本与注册表一致时复制到运行目录 `installed/<name>/`（gitignore），否则按注册表版本从 GitHub release 独立包下载，失败自动回退缓存/远端文件
 - 依赖随安装/卸载/更新生命周期自动管理，不提供手动装/卸依赖的入口
 - WebUI 管理界面（`webui.py`，纯标准库）+ 命令行工具（`errorbackend`）+ 进程守护 + 版本更新检查
 
@@ -22,7 +22,7 @@
 | `errorbackend.py` | 命令行工具（复用 launcher 逻辑） |
 | `install_cli.py` | 安装 `errorbackend` 到 PATH（launcher 每次启动自动调用，幂等） |
 | `backends.json` | 注册表索引：`name/description/type/entry/deps/port/version/source/files` |
-| `backends/<name>/` | 后端程序包目录（安装时按需下载；含 `backend.json` 清单） |
+| `backends/<name>/` | 后端程序包商店 / 下载缓存（git 保留永不删除；含 `backend.json` 清单） |
 | `CHANGELOG.md` / `VERSION` | 更新日志 / 版本号（release 由 tag 写入） |
 | `launcher.json` | 全局配置：`auto_restart`、`restart_backoff_seconds`、`log_dir` |
 
@@ -38,10 +38,10 @@
 `launcher.discover_backends()` 只扫描 `backends/*/backend.json`（`PACKAGES_DIR`）。WebUI 的 `/api/backends` 会把注册表（`load_registry()`）里**未安装**的后端也并进来（`installed: false`），卡片显示「安装」。
 
 ### 安装（`install_backend` / WebUI「安装」/ `install-backend` 命令）
-商店 `backend.json` 清单与注册表条目合并（商店清单优先，注册表兜底 version/source/files 等字段）→ 从商店 `backends/<name>` 按 `files` 清单复制到 `installed/<name>/`（商店缺文件时从 `source` 远端下载）→ 始终用合并后的元数据写回 `backend.json` → `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
+缓存 `backends/<name>` 的 `backend.json` 清单与注册表条目合并（缓存清单优先，注册表兜底 version/source/files 等字段）→ 缓存版本与注册表一致时按 `files` 清单复制到 `installed/<name>/`；否则按注册表版本从 release 独立包（`error-backends-<后端名>-<版本>.zip`）下载解压到 `installed/<name>/`，失败回退缓存/按 `source` raw URL 逐文件下载 → 始终用合并后的元数据写回 `backend.json` → `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
 
 ### 卸载（`remove_backend_dir` / WebUI「卸载」/ `uninstall-backend` 命令）
-停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**git 商店 `backends/<name>` 永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
+停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**下载缓存与 git 商店 `backends/<name>` 永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
 
 ### 更新
 - 更新不依赖 git：`update_project()` 查询 GitHub 最新 release（`_latest_release()`），tag 高于本地 `read_version()` 才下载本体包 `error-backends-<版本>.zip`，解压覆盖仓库根目录（`_extract_update_zip()` 跳过 `installed/`、`logs/`、`backends/`、`dist/`、`.git/`、`.runtime.json`）；无新版本返回 `updated=False`（前端弹「没有可以更新的」）
@@ -62,6 +62,7 @@
 - `POST /api/install/<name>`：后台安装（轮询 `/api/setup-log/<name>`）
 - `POST /api/uninstall/<name>`：停止 + 删除程序与依赖
 - `POST /api/start-all|stop-all|restart-all|start/<name>|stop/<name>|restart/<name>`
+- 启动前探测端口占用：端口被未记录进程监听时跳过启动并返回 `failed`/`warning`；「启动全部 / 重启全部」返回失败列表
 - `POST /api/update-backend/<name>`：单独更新后端（下载该后端独立 release 包覆盖商店并重装程序与依赖）
 - `POST /api/update`：整体更新（成功后重启全部后端）
 - `GET /api/webui-token` / `POST /api/webui-token`（`{token}` 或 `{reset:true}`）、`POST /api/webui-restart`
