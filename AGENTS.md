@@ -38,16 +38,16 @@
 `launcher.discover_backends()` 只扫描 `backends/*/backend.json`（`PACKAGES_DIR`）。WebUI 的 `/api/backends` 会把注册表（`load_registry()`）里**未安装**的后端也并进来（`installed: false`），卡片显示「安装」。
 
 ### 安装（`install_backend` / WebUI「安装」/ `install-backend` 命令）
-注册表条目 → 从商店 `backends/<name>` 按 `files` 清单复制到 `installed/<name>/`（商店缺文件时从 `source` 远端下载）→ 写 `backend.json`（缺省时）→ `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
+商店 `backend.json` 清单与注册表条目合并（商店清单优先，注册表兜底 version/source/files 等字段）→ 从商店 `backends/<name>` 按 `files` 清单复制到 `installed/<name>/`（商店缺文件时从 `source` 远端下载）→ 始终用合并后的元数据写回 `backend.json` → `setup_backend()` 装依赖（失败自动清理半成品，回到未安装）。WebUI 侧走 `start_install()`（后台 `launcher.py install-backend <name>`，日志轮询 `/api/setup-log/<name>`，安装中卡片转圈 + 日志）。
 
 ### 卸载（`remove_backend_dir` / WebUI「卸载」/ `uninstall-backend` 命令）
 停止后端 → 删除 `installed/<name>`（程序 + 依赖）。**git 商店 `backends/<name>` 永远不删**。WebUI 卸载为异步（卸载中转圈 + 日志），完成后卡片回到「安装」。
 
 ### 更新
-- 整体：「⬆ 更新」→ `update_project()`（git pull）→ 先停全部 → 逐后端 `setup_backend()` 同步依赖 → 再启动依赖就绪的后端 → WebUI 2 秒后自动重启
-- 单个：卡片「⬆ 更新」→ `POST /api/update-backend/<name>` → git pull → 停止 → `setup_backend()` 同步依赖 → 重启该后端
+- 更新不依赖 git：`update_project()` 查询 GitHub 最新 release（`_latest_release()`），tag 高于本地 `read_version()` 才下载本体包 `error-backends-<版本>.zip`，解压覆盖仓库根目录（`_extract_update_zip()` 跳过 `installed/`、`logs/`、`backends/`、`dist/`、`.git/`、`.runtime.json`）；无新版本返回 `updated=False`（前端弹「没有可以更新的」）
+- 单个：卡片「⬆ 更新」→ `POST /api/update-backend/<name>` → `update_backend(name)` 按注册表版本找该后端独立 release 包（`error-backends-<后端名>-<版本>.zip`）下载解压覆盖商店 `backends/<名称>/`，再走 `install_backend()` 重装到 `installed/` 并同步依赖；资产缺失时回退按 `source` raw URL 逐文件下载
 - 依赖精确同步：Python 依赖清单（`requirements.txt`）变化时删除并重建 venv；Node 有 `package-lock.json` 时用 `npm ci`（无则 `npm install`），保证依赖不多不少
-- 版本检查：`launcher.update_check()`（60 秒缓存）`git fetch` 后对比本地/远端 `backend.json` 的 `version`，返回 `{repo_update, backends:{name:{local,remote,available}}}`；失败返回空（前端静默）
+- 版本检查：`launcher.update_check()`（60 秒缓存）对比 GitHub 最新 release tag 与远端 `backends.json` 注册表版本（`_remote_registry()`），返回 `{repo_update, backends:{name:{local,remote,available}}}`；失败返回空（前端静默）
 
 ### WebUI 启动 / CLI 自动安装
 `main()` 最先 `ensure_cli_installed()`（写 shim + PATH，幂等）→ `cleanup_legacy_backend_dirs()`（升级清理：git 已不跟踪的旧版顶层后端目录整目录删除，防残留）→ plain run 自动生成 WebUI 端口/token 并后台启动后退出。自动开浏览器仅限 Windows 或显式设置 `$BROWSER` 的 Linux/macOS。
@@ -62,7 +62,7 @@
 - `POST /api/install/<name>`：后台安装（轮询 `/api/setup-log/<name>`）
 - `POST /api/uninstall/<name>`：停止 + 删除程序与依赖
 - `POST /api/start-all|stop-all|restart-all|start/<name>|stop/<name>|restart/<name>`
-- `POST /api/update-backend/<name>`：单独更新后端（拉代码 + 检查依赖 + 重启）
+- `POST /api/update-backend/<name>`：单独更新后端（下载该后端独立 release 包覆盖商店并重装程序与依赖）
 - `POST /api/update`：整体更新（成功后重启全部后端）
 - `GET /api/webui-token` / `POST /api/webui-token`（`{token}` 或 `{reset:true}`）、`POST /api/webui-restart`
 - `GET /api/logs/<name>`、`GET /api/setup-log/<name>`（安装/卸载日志轮询）
@@ -75,6 +75,7 @@
 - 自定义配置：`backend.json` 的 `config` 声明 `{key: {label, type, default, env}}`，`launcher.Supervisor.spawn` 会把保存值（或默认值）以 `env` 注入；改配置后需重启后端生效
 - UI 不提供手动「安装依赖 / 删除依赖」入口，依赖只随安装/卸载/更新
 - 后台子进程 Windows 下必须带 `CREATE_NO_WINDOW`：统一用 `launcher._no_window_kwargs()`；新增 subprocess 调用后 `rg -n "subprocess"` 排查
+- 更新已改为纯 HTTP 下载，不执行 git；新增更新相关逻辑不要再引入 git/subprocess
 - 日志统一 UTF-8：子进程环境加 `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1`
 - 运行时配置读写只通过 `launcher.backend_config()` / `save_backend_config()` / `configure_webui_*()`
 - 命令行与 WebUI 共用同一套进程与状态（`logs/state.json`）；新增子命令要同步 `launcher.py` + `errorbackend.py` + README/AGENTS
@@ -87,4 +88,5 @@
 - 安装失败：检查注册表 `source`/`files` 与远端是否一致；远端不可用时需本地有同路径副本
 - 端口/配置不生效：`.runtime.json` 覆盖默认值，改完重启后端
 - WebUI 黑框：后台子进程缺 `CREATE_NO_WINDOW`
+- 更新是纯 HTTP 下载（不跑 git），不应有黑框；若出现说明新增了子进程调用且漏了该标志
 - `errorbackend` 失效：重跑 `python install_cli.py`

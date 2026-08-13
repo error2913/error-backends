@@ -4,9 +4,10 @@
 
 ## Unreleased
 
+- 框架更新改为 GitHub release 化：本体更新不再依赖 git——`update_project()` 查询 GitHub 最新 release（`_latest_release()`），tag 高于本地版本才下载 `error-backends-<版本>.zip` 解压覆盖仓库根目录（跳过 `installed/`、`logs/`、`backends/`、`dist/`、`.git/`、`.runtime.json`）；每个后端在 release 里有独立包（`error-backends-<名称>-<版本>.zip`）并各自版本控制，卡片「⬆ 更新」走 `update_backend(name)` 只下载对应后端包覆盖商店并重装依赖；打包改为本体 + 每后端独立包；版本检查对比 release tag 与远端 `backends.json` 注册表；升级清理仅 git 部署时执行
 - ocr 后端引擎更换：tesseract.js → **PP-OCRv6 + ncnn**（tiny_det + small_rec，
   中英日多语），后端由 Node 改为 Python（Flask + ncnn + OpenCV + pyclipper），
-  API 契约与端口（18699）保持不变；模型首次启动自动下载到 `ocr/cache/models/`
+   API 契约与端口（18699）保持不变；模型首次启动自动下载到 `ocr/cache/models/`
 - 框架搭建：launcher / WebUI / CLI 管理机制（`errorbackend` 命令、`ERROR_BACKEND_*` 环境变量、systemd 服务 `error-backends-webui`）
 - WebUI 空态提示：未收录后端时显示占位说明
 - WebUI 端口改为首次运行随机生成五位数（10000-65535，避开已收录后端端口），不再固定端口，避免与本机其他服务冲突
@@ -25,7 +26,7 @@
 - 收录 `chart` 后端（排行榜图表图片生成，FastAPI，3003）；后端目录统一改名为 ASCII 路径（`redbag/backend`、`run_shell/backend`、`chart`），不再出现中文路径
 - WebUI：「⬆ 更新」点击后转圈、更新成功自动重启 WebUI；后端卡片按依赖是否就绪排序；新增「🙈 隐藏未装依赖」开关（状态本地记住）
 - WebUI 后端卡片新增「重启」按钮（依赖已装且运行中时显示），接口 `POST /api/restart/<name>`
-- 更新后自动重启全部后端；后端卡片展示版本号，git fetch 对比远端版本（60 秒缓存），有新版时更新按钮显示小红点、卡片出现「⬆ 更新」按钮（拉代码+检查依赖+重启）；新增「删除」按钮（程序与依赖一起删除，删除已 git 暂存）
+- 更新后自动重启全部后端；后端卡片展示版本号，对比 GitHub release 与远端注册表版本（60 秒缓存），有新版时更新按钮显示小红点、卡片出现「⬆ 更新」按钮（下载独立包+检查依赖+重启）；新增「删除」按钮（程序与依赖一起删除，商店源文件不动）
 - 更新日志弹窗改为排版化的版本/条目展示
 - 修复 WebUI 后台安装依赖（pip/npm）时子进程未带 `CREATE_NO_WINDOW` 导致 Windows 弹黑框的问题，所有后台子进程调用点补齐
 - 改为独立分发模式：后端程序按需下载到 `backends/`，依赖随安装/卸载/更新自动管理，移除手动装/卸依赖入口；README 改为纯索引，后端介绍移入各包目录

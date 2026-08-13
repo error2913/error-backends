@@ -29,7 +29,7 @@ git clone https://github.com/error2913/error-backends.git && cd error-backends &
 
 - **安装**：WebUI 卡片「安装」或 `errorbackend install-backend <name>`——从商店 `backends/<name>` 复制到 `installed/<name>` 并自动安装依赖（选择式下载，未选择的后端不出现在运行环境），完成后可启动
 - **启停 / 重启**：卡片按钮或 `errorbackend start / stop / restart <name>`
-- **更新**：右上角「⬆ 更新」拉取仓库代码并重启全部后端与 WebUI；卡片「⬆ 更新」单独更新该后端（重新下载 + 检查依赖 + 重启）；后台 60 秒检查一次远端版本，有新版时更新按钮出现小红点
+- **更新**：右上角「⬆ 更新」下载最新 release 覆盖本体并重启全部后端与 WebUI；卡片「⬆ 更新」单独更新该后端（下载独立包覆盖商店 + 重装依赖 + 重启）；后台 60 秒检查一次远端版本，有新版时更新按钮出现小红点
 - **卸载**：卡片「卸载」（卸载中转圈 + 日志）或 `errorbackend uninstall-backend <name>`——停止并删除 `installed/<name>`（程序 + 依赖），**git 商店里的包不受影响**
 
 依赖随以上操作自动管理，无手动「安装依赖 / 删除依赖」按钮。
@@ -74,9 +74,9 @@ assets/                WebUI 图标
 
 ## 更新
 
-- **框架更新**：WebUI 右上角「⬆ 更新」或 `errorbackend update`（基于 git pull，需 git clone 安装；下载 release 包运行则重新下载新版覆盖）。
-- **后端更新**：注册表版本高于已安装版本时，卡片出现「⬆ 更新」按钮，点击重新拉取程序并重装依赖；或 `uninstall-backend` 后重新 `install-backend`。
-- **升级残留**：旧版（后端位于仓库顶层）升级到商店模型后，顶层目录里的 `node_modules/`、`.venv/`、缓存等未跟踪残留会自动清理——launcher 启动时检测到「git 已不再跟踪」的旧后端目录（`ocr` / `redbag` / `run_shell` / `chart`）会整目录删除，商店 `backends/` 与运行配置 `installed/` 不受影响。
+- **本体更新**：WebUI 右上角「⬆ 更新」或 `errorbackend update`。检测 GitHub 最新 release（`error-backends-<版本>.zip`），比本地版本新就下载并直接覆盖仓库文件，不依赖 git——本地文件有改动也不会阻塞更新；更新成功后自动重启 WebUI 使新代码生效。
+- **后端更新**：每个后端在 release 里有独立包（`error-backends-<后端名>-<版本>.zip`），版本各自独立记录在 `backends.json`。注册表版本高于本地版本时，卡片出现「⬆ 更新」按钮，点击只下载对应后端独立包覆盖商店并重装依赖，不影响其他后端；或 `uninstall-backend` 后重新 `install-backend`。
+- **升级残留**：旧版（后端位于仓库顶层）升级到商店模型后，顶层目录里的 `node_modules/`、`.venv/`、缓存等未跟踪残留会自动清理——仅 git 部署时 launcher 启动会检测并整目录删除「git 已不再跟踪」的旧后端目录（`ocr` / `redbag` / `run_shell` / `chart`），商店 `backends/`、`installed/`、`logs/` 与运行配置不受影响。
 
 ## 命令行（errorbackend）
 
@@ -88,7 +88,7 @@ errorbackend list                          查看所有后端状态
 errorbackend install-backend <name>        安装后端（下载程序 + 安装依赖）
 errorbackend uninstall-backend <name>      卸载后端（停止并删除程序与依赖）
 errorbackend start/stop/restart <name>     启停/重启
-errorbackend update                        拉取仓库更新
+errorbackend update                        从 GitHub 更新到最新版
 errorbackend webui / webui-stop / webui-restart / webui-port / webui-host / webui-token
 ```
 
