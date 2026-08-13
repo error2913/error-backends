@@ -1,5 +1,9 @@
 import re
+import os
 from PIL import Image, ImageDraw, ImageFont
+
+# 字体相对本文件所在目录解析（工作目录可配置为 data/run_shell，不再依赖脚本目录为 cwd）
+FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 # 定义ANSI转义字符解析
 class ANSIParser:
@@ -91,10 +95,10 @@ def draw_image(text, font_size=21, line_spacing=1.2, padding=5):
     parts = parser.parse(text)
     
     try:
-        font_regular = ImageFont.truetype("./fonts/SarasaMonoSC-Regular.ttf", font_size)
-        font_bold = ImageFont.truetype("./fonts/SarasaMonoSC-Bold.ttf", font_size)
-        font_italic = ImageFont.truetype("./fonts/SarasaMonoSC-Italic.ttf", font_size)
-        font_bold_italic = ImageFont.truetype("./fonts/SarasaMonoSC-BoldItalic.ttf", font_size)
+        font_regular = ImageFont.truetype(os.path.join(FONT_DIR, "SarasaMonoSC-Regular.ttf"), font_size)
+        font_bold = ImageFont.truetype(os.path.join(FONT_DIR, "SarasaMonoSC-Bold.ttf"), font_size)
+        font_italic = ImageFont.truetype(os.path.join(FONT_DIR, "SarasaMonoSC-Italic.ttf"), font_size)
+        font_bold_italic = ImageFont.truetype(os.path.join(FONT_DIR, "SarasaMonoSC-BoldItalic.ttf"), font_size)
     except IOError:
         raise Exception("字体文件未找到，请确认字体路径。")
 

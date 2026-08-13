@@ -5,5 +5,14 @@
   "entry": "backend/main.py",
   "deps": "backend/requirements.txt",
   "port": 3011,
-  "version": "1.1.1"
+  "version": "1.2.0",
+  "config": {
+    "work_dir": {
+      "label": "Shell 命令工作目录",
+      "type": "text",
+      "default": "{REPO_ROOT}/data/run_shell",
+      "env": "RUN_SHELL_WORK_DIR",
+      "create_dir": true
+    }
+  }
 }

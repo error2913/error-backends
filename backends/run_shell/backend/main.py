@@ -14,8 +14,11 @@ import logging
 
 from fastapi.staticfiles import StaticFiles
 
-# 以脚本所在目录为工作目录，保证 fonts / temp_images 等相对路径正确
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+# 工作目录：优先用 launcher 注入的 RUN_SHELL_WORK_DIR（backend.json config 声明，
+# 默认 {REPO_ROOT}/data/run_shell，目录由 launcher 自动创建）；未配置时回退到脚本所在目录
+WORK_DIR = os.environ.get("RUN_SHELL_WORK_DIR", "").strip() or os.path.dirname(os.path.abspath(__file__))
+os.makedirs(WORK_DIR, exist_ok=True)
+os.chdir(WORK_DIR)
 
 from process_manager import ProcessManager
 from image_utils import draw_image
@@ -38,8 +41,8 @@ def authorized(request: Request, token: str = "") -> bool:
     auth = request.headers.get("authorization", "")
     return auth == f"Bearer {TOKEN}" or (request.headers.get("x-token") or "") == TOKEN
 
-# 创建临时目录
-TEMP_DIR = "temp_images"
+# 创建临时目录（位于工作目录下，图片输出与 /temp_images 静态服务共用）
+TEMP_DIR = os.path.join(WORK_DIR, "temp_images")
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # 挂载静态文件目录，用于提供临时图片访问
