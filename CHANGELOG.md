@@ -2,6 +2,10 @@
 
 标题格式为 `## <版本号>`，release 工作流按标签版本号读取对应段落作为发布说明；日常更新以「Unreleased」汇总，发版前改成版本号并补日期。
 
+## 0.2.1 - 2026-08-14
+
+- 修复卡片「⬆ 更新」点击后没有转圈反馈的问题：更新期间按钮显示「更新中」转圈，完成后恢复
+
 ## 0.2.0 - 2026-08-14
 
 - 移植全部后端：新增 `image-url-to-base64`（图片 URL 转 base64，46678）、`mcp-files-exec`（MCP 文件与受限命令执行，3910）、`md-html-render`（Markdown/HTML 渲染为图片，37632）、`stream-output`（流式输出中转 SSE/轮询，3010）、`usage-chart`（token 用量图表，3009）、`web-read`（网页 URL 读取与截图，46799），全部接入 `ERROR_BACKEND_*` 环境变量与 token 鉴权
