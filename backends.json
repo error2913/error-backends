@@ -55,7 +55,7 @@
       "entry": "backend/main.py",
       "deps": "backend/requirements.txt",
       "port": 3011,
-      "version": "1.1.1",
+      "version": "1.2.0",
       "source": "https://raw.githubusercontent.com/error2913/error-backends/shop/backends/run_shell",
       "files": [
         "backend.json",
