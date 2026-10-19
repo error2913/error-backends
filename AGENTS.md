@@ -99,6 +99,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：先 checkout `shop` 分支
 ## 常用排查
 
 - 后端起不来：`logs/<name>.log`；安装日志看 `/api/setup-log/<name>`
+- 更新/重启后 WebUI 仍是旧代码：systemd 或前台启动时没有 `logs/webui.pid`，旧进程会一直占用 WebUI 端口（`logs/webui.log` 里 `Address already in use`）。`launcher.py webui-restart` 会自动用 `ss`/`/proc`（Linux）或 `netstat -ano`（Windows）找到并结束命令行含 `launcher.py`/`webui.py` 的旧进程；仍失败时可手动 `sudo fuser -k <端口>/tcp` 或 `sudo systemctl restart error-backends-webui`。
 - 安装失败：检查注册表 `source`/`files` 与远端是否一致；远端不可用时需本地有同路径副本
 - 端口/配置不生效：`.runtime.json` 覆盖默认值，改完重启后端
 - WebUI 黑框：后台子进程缺 `CREATE_NO_WINDOW`
