@@ -544,7 +544,7 @@ async function refresh(){
           : b.running
             ? `<button class="danger" onclick="run('${b.name}','stop')">停止</button><button onclick="restartBackend('${b.name}')">重启</button>`
             : `<button class="primary" onclick="run('${b.name}','start')">启动</button>`}
-        ${b.installed && b.webui
+        ${b.installed && b.webui && b.webui.path
           ? b.running
             ? `<button class="primary" onclick="openWebui('${b.name}')" title="在新标签打开 ${esc(b.webui.title || 'WebUI')}">🌐 WebUI</button>`
             : `<button disabled title="后端未运行，启动后可打开 WebUI">🌐 WebUI</button>`
@@ -610,7 +610,7 @@ async function restartBackend(name){
 }
 function openWebui(name){
   const b = backendsByName[name];
-  if (!b || !b.webui) return;
+  if (!b || !b.webui || !b.webui.path) return;
   let url;
   if (b.webui.proxy !== false){
     // 走 launcher 同源反代：只暴露 launcher 端口，后端自身的端口不必对外开放
@@ -1072,7 +1072,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         "deps_ready": deps_ready(b),
                         "installed": deps_ready(b),  # 程序 + 依赖都就绪才算已安装
                         "pid": info.get("pid"),
-                        "webui": b.webui or {},
+                        "webui": b.webui or None,
                     })
                 installed_names = {b.name for b in backends}
                 for item in load_registry():
@@ -1096,7 +1096,7 @@ def run_webui(backends, config, supervisor: Supervisor, host: str = None, port: 
                         "deps_ready": False,
                         "installed": False,
                         "pid": None,
-                        "webui": normalize_webui(item.get("webui")),
+                        "webui": normalize_webui(item.get("webui")) or None,
                     })
                 self._json({"ok": True, "backends": rows, "updates": update_check()})
                 return
