@@ -2,6 +2,11 @@
 
 标题格式为 `## <版本号>`，release 工作流按标签版本号读取对应段落作为发布说明；日常更新以「Unreleased」汇总，发版前改成版本号并补日期。
 
+## Unreleased
+
+- 同步 aiplugin4-backends 的 WebUI 修复：未声明 `webui` 的后端卡片不再显示「🌐 WebUI」按钮（此前 `/api/backends` 返回空对象 `{}`，在 JS 中为真值导致所有已安装卡片都显示按钮）
+- 同步配置弹窗控件修复：`backend.json` 的 `config` 支持 `boolean`（开关）与 `tristate`（自动/开启/关闭）类型，布尔值保存为 `1`/`0`，不再需要手输 `true`/`false`；服务端校验并归一化，`{REPO_ROOT}` 展开时布尔默认值也归一化
+
 ## 0.2.4 - 2026-10-19
 
 - 修复 WebUI「⬆ 更新」/「🔄 重启 WebUI」在 **systemd 或前台直接运行**（没有 `logs/webui.pid`）时不生效的问题：旧 WebUI 进程一直占着端口，新进程 `Address already in use` 后退出，页面继续跑旧代码
