@@ -21,7 +21,7 @@
 | `webui.py` | Web 管理界面：内嵌 HTML/CSS/JS（`PAGE`）+ 标准库 HTTP 服务 |
 | `errorbackend.py` | 命令行工具（复用 launcher 逻辑） |
 | `install_cli.py` | 安装 `errorbackend` 到 PATH（launcher 每次启动自动调用，幂等） |
-| `backends.json` | 注册表索引：`name/description/type/entry/deps/port/version/source/files` |
+| `backends.json` | 注册表索引：`name/description/type/entry/deps/port/version/source/files`，可选 `config` schema 与 `webui` 元数据 |
 | `backends/<name>/` | 后端程序下载缓存（gitignore；源码在 `shop` 分支，运行时下载/更新解压到这里） |
 | `CHANGELOG.md` / `VERSION` | 更新日志 / 版本号（release 由 tag 写入） |
 | `launcher.json` | 全局配置：`auto_restart`、`restart_backoff_seconds`、`log_dir` |
@@ -52,14 +52,22 @@
 ### WebUI 启动 / CLI 自动安装
 `main()` 最先 `ensure_cli_installed()`（写 shim + PATH，幂等）→ `cleanup_legacy_backend_dirs()`（升级清理：git 已不跟踪的旧版顶层后端目录整目录删除，防残留）→ plain run 自动生成 WebUI 端口/token 并后台启动后退出。自动开浏览器仅限 Windows 或显式设置 `$BROWSER` 的 Linux/macOS。
 
+### 后端 WebUI（卡片按钮 + `/ui` 反代）
+- 元数据：`backend.json` / `backends.json` 可选 `webui`：`{"path": "/", "title": "XXX WebUI", "proxy": true, "inject_token": false}`；`path` 为后端内入口路径，`proxy=false` 只给直连，`inject_token=true` 时反代自动携带该后端 token（仅用于没有自身登录入口的 WebUI）。`launcher.normalize_webui()` 统一规范化；`discover_backends()` 优先读已安装清单，缺失时回退注册表但要求「安装版本不低于注册表版本」（旧版前端未适配反代时不提前显示按钮）；`install_backend()` 的注册表兜底键包含 `webui`。
+- 卡片：`/api/backends` 每行带 `webui`；前端仅对「已安装 + 有 webui」显示「🌐 WebUI」按钮，运行中可点；`proxy !== false` 打开同源 `/ui/<name>/`，否则用浏览器 host + 后端端口直连。
+- 反代：`webui.py` 的 `do_GET/do_POST` 与 `do_HEAD/PUT/PATCH/DELETE/OPTIONS` 进入 `_proxy()`；只允许已登记、运行中且声明 `webui` 的后端，上游固定 `127.0.0.1:<effective_port>`（`host` 为 `0.0.0.0/::` 时），不接受用户 URL（无 SSRF）。流式转发，保留 `Content-Length`/`Range`/`ETag`，改写 `Location: /x → /ui/<name>/x` 与 `Set-Cookie` 的 `Path=/ → Path=/ui/<name>/`；`/ui/<name>` 自动 302 补尾斜杠。
+- 鉴权：`/api/*` 仍只认 header token；`/ui/*` 额外接受 HttpOnly cookie `eb_ui`（`Path=/ui`，值 = HMAC(webui token)，换 token 自动失效），由带 header token 成功的 API 响应顺带下发，供 `window.open` 导航携带。launcher 自己的 `X-Token`/`Authorization` 与 `eb_ui` 不会透给后端。
+- 后端 UI 约定：前端请求必须用相对 URL（或基于 `document.baseURI` 解析）以兼容 `/ui/<name>/` 子路径；反代会发送 `X-Forwarded-Prefix: /ui/<name>`。暂不支持 WebSocket 与 chunked 请求体。
+
 ### 发布
 Git tag `v*` 触发 `.github/workflows/release.yml`：先 checkout `shop` 分支把 `backends/` 源码暂存进工作区（主分支不含后端程序）→ tag 去掉 `v` 写进 VERSION → `launcher.py package` 生成本体包 `dist/error-backends-<version>.zip/.tar.gz`，并给每个后端按 `backends.json` 注册表版本生成独立包 `dist/error-backends-<后端名>-<版本>.zip/.tar.gz` → 全部 `dist/*` 上传为 release 资产 → 从 CHANGELOG.md 按版本号提取段落作为 release 描述。发版前记得：后端源码改动提交到 `shop` 分支、注册表版本等元数据同步到 main 的 `backends.json`、CHANGELOG 写版本段落。
 
 ## WebUI API
 
-除 `/`（登录页）与 `/icon*.png` 外，请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。
+除 `/`（登录页）与 `/icon*.png` 外，请求需带 `Authorization: Bearer <token>` 或 `X-Token: <token>`。`/ui/*` 页面导航额外接受 cookie `eb_ui`（见上节）。
 
-- `GET /api/backends`：已安装（`installed/` 中程序 + 依赖就绪）+ 注册表未安装卡片数据，含 `updates` 版本检查结果
+- `GET /api/backends`：已安装（`installed/` 中程序 + 依赖就绪）+ 注册表未安装卡片数据，含 `updates` 版本检查结果与每行的 `webui` 元数据
+- `GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS /ui/<name>/...`：后端 WebUI 反代（仅已安装、运行中且声明 `webui` 的后端；未声明/未运行返回 404/503 HTML）
 - `GET|POST /api/config/<name>`、`POST /api/port/<name>[/reset]`：后端端口/token/host 配置
 - `GET /api/config/<name>` 额外返回 `options`（自定义配置值与默认值合并）与 `config_schema`（来自 `backend.json` 的 `config` 字段）；`POST` 接受 `options`，按 schema 校验并保存到 `.runtime.json` 的 `config/<name>.options`
 - `POST /api/install/<name>`：后台安装（轮询 `/api/setup-log/<name>`）
@@ -76,6 +84,8 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：先 checkout `shop` 分支
 - WebUI 保持纯标准库；后端依赖只在各自 venv/node_modules，不要手动装
 - 改 `webui.py` 的 `PAGE`（内嵌 HTML/JS）后，必须用 `python -c "import webui; ..."` 取出 PAGE 并 `node --check` 验证 JS；PAGE 是 Python 字符串，JS 里要输出的 `\n` 必须写成 `\\n`（单反斜杠会被 Python 转成真实换行、直接弄坏页面脚本）
 - 新增后端 = `shop` 分支的 `backends/<name>/`（含 `backend.json`，必须有 `version`）+ main 的 `backends.json` 注册表条目（`files` 清单要与包目录同步）；本地开发缓存目录同样放 `backends/<name>/`（gitignore）
+- 新增带 WebUI 的后端：在 `backend.json` 补 `webui`（至少 `path`），前端一律用相对 URL / `document.baseURI` 拼请求，保证既能直连端口、也能经 `/ui/<name>/` 反代；若后端只给 launcher 反代看，建议文档提示监听 `127.0.0.1` 以避免额外开放端口
+- 弹窗类 UI 用 `.dialog-body` 类承载内容（`flex:1; min-height:0; overflow-y:auto`），不要写死高度，否则配置项/日志一多就滚不动
 - 自定义配置：`backend.json` 的 `config` 声明 `{key: {label, type, default, env}}`，`launcher.Supervisor.spawn` 会把保存值（或默认值）以 `env` 注入；改配置后需重启后端生效
 - UI 不提供手动「安装依赖 / 删除依赖」入口，依赖只随安装/卸载/更新
 - 后台子进程 Windows 下必须带 `CREATE_NO_WINDOW`：统一用 `launcher._no_window_kwargs()`；新增 subprocess 调用后 `rg -n "subprocess"` 排查
