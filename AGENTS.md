@@ -86,7 +86,7 @@ Git tag `v*` 触发 `.github/workflows/release.yml`：先 checkout `shop` 分支
 - 新增后端 = `shop` 分支的 `backends/<name>/`（含 `backend.json`，必须有 `version`）+ main 的 `backends.json` 注册表条目（`files` 清单要与包目录同步）；本地开发缓存目录同样放 `backends/<name>/`（gitignore）
 - 新增带 WebUI 的后端：在 `backend.json` 补 `webui`（至少 `path`），前端一律用相对 URL / `document.baseURI` 拼请求，保证既能直连端口、也能经 `/ui/<name>/` 反代；若后端只给 launcher 反代看，建议文档提示监听 `127.0.0.1` 以避免额外开放端口
 - 弹窗类 UI 用 `.dialog-body` 类承载内容（`flex:1; min-height:0; overflow-y:auto`），不要写死高度，否则配置项/日志一多就滚不动
-- 自定义配置：`backend.json` 的 `config` 声明 `{key: {label, type, default, env}}`，`launcher.Supervisor.spawn` 会把保存值（或默认值）以 `env` 注入；改配置后需重启后端生效
+- 自定义配置：`backend.json` 的 `config` 声明 `{key: {label, type, default, env}}`（`type`: `text` / `number` / `boolean` / `tristate`），`launcher.Supervisor.spawn` 会把保存值（或默认值）以 `env` 注入；布尔值统一存 `1`/`0`，三态空字符串表示自动；改配置后需重启后端生效
 - UI 不提供手动「安装依赖 / 删除依赖」入口，依赖只随安装/卸载/更新
 - 后台子进程 Windows 下必须带 `CREATE_NO_WINDOW`：统一用 `launcher._no_window_kwargs()`；新增 subprocess 调用后 `rg -n "subprocess"` 排查
 - 更新已改为纯 HTTP 下载，不执行 git；新增更新相关逻辑不要再引入 git/subprocess
