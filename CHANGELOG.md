@@ -2,6 +2,13 @@
 
 标题格式为 `## <版本号>`，release 工作流按标签版本号读取对应段落作为发布说明；日常更新以「Unreleased」汇总，发版前改成版本号并补日期。
 
+## Unreleased
+
+- 后端卡片新增「🌐 WebUI」按钮：后端在 `backend.json` / `backends.json` 声明 `webui`（`path` / `title` / `proxy` / `inject_token`）后，已安装且运行中的卡片会出现按钮，点击在新标签打开后端自带的 WebUI
+- 新增内置反向代理 `/ui/<后端名>/`（纯标准库、流式转发）：只允许本机、已登记、运行中的后端；透传 GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS，自动处理 `Location` 与 `Set-Cookie` 的 `Path` 改写，支持 Range/206、大文件上传与流式下载；后端 WebUI 只要使用相对 URL（或以 `document.baseURI` 解析）即可经 launcher 打开，**无需把后端端口暴露到公网**
+- 反代会话鉴权：launcher 登录后由 API 响应下发仅作用于 `/ui` 的 HttpOnly cookie（值由 WebUI token 派生，换 token 自动失效）；launcher 自身 `/api/*` 仍只认 header token，不降级
+- 修复后端卡片「⚙ 配置」弹窗内容区无法上下滚动：弹窗内容区改为可收缩 + `overflow-y:auto`，配置项较多时可正常滚动到底、底部保存按钮固定可见；日志弹窗同时受益
+
 ## 0.2.2 - 2026-08-14
 
 - `run_shell` 升级 1.2.0：Shell 命令工作目录改为可配置（默认 `data/run_shell`，`{REPO_ROOT}` 模板展开 + 启动自动创建，WebUI「配置」可改），执行命令不再落在 `installed/` 程序目录内——更新/重装/卸载都不会清掉工作目录内容；临时输出图片也随工作目录走，字体仍由程序包自带（不受影响）
